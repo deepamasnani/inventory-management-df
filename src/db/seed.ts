@@ -8,8 +8,17 @@ import { DEFAULT_ADMIN } from "../lib/constants";
 
 dotenv.config({ path: ".env.local" });
 
-const connectionString = process.env.POSTGRES_URL || "postgresql://postgres:postgres@localhost:5432/devfootwear";
-const client = postgres(connectionString);
+const connectionString =
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_URL ||
+  process.env.DATABASE_URL ||
+  "postgresql://postgres:postgres@localhost:5432/devfootwear";
+const isLocal = connectionString.includes("localhost") || connectionString.includes("127.0.0.1");
+const client = postgres(connectionString, {
+  ssl: isLocal ? false : "require",
+  prepare: false,
+  max: 1,
+});
 const db = drizzle(client, { schema });
 
 const WAREHOUSE_NAMES = [
