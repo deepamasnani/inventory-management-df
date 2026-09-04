@@ -36,21 +36,3 @@ export default async function Home({
     />
   );
 }
-  const [stats, warehouses, skus, customers, allBills] = await Promise.all([
-    getDashboardStats(),
-    getWarehouses(),
-    getSkusWithStock(),
-    getCustomers(),
-    getBills(),
-  ]);
-
-  return (
-    <AppShell
-      stats={stats}
-      warehouses={warehouses}
-      skus={skus}
-      customers={customers}
-      bills={allBills}
-    />
-  );
-}
