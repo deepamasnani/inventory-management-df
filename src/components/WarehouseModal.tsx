@@ -79,8 +79,8 @@ export default function WarehouseModal({
   function saveEmail() {
     startTransition(async () => {
       const result = await updateAdminEmail(email, emailPassword);
-      if ("error" in result) {
-        toast(result.error, "error");
+      if (!("ok" in result) || !result.ok) {
+        toast("error" in result && result.error ? result.error : "Could not update email", "error");
         return;
       }
       setEmail(result.email);
@@ -92,8 +92,8 @@ export default function WarehouseModal({
   function savePassword() {
     startTransition(async () => {
       const result = await changeAdminPassword(currentPassword, newPassword, confirmPassword);
-      if ("error" in result) {
-        toast(result.error, "error");
+      if (!("ok" in result) || !result.ok) {
+        toast("error" in result && result.error ? result.error : "Could not update password", "error");
         return;
       }
       setCurrentPassword("");
