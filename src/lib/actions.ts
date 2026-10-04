@@ -87,7 +87,7 @@ export async function getSkusWithStock(): Promise<SkuWithDetails[]> {
         const row = allStock.find(
           (st) => st.skuCategoryId === c.id && st.warehouseId === w.id
         );
-        stockMap[w.id][c.id] = row?.qty ?? 0;
+        if (row) stockMap[w.id][c.id] = row.qty;
       });
     });
     return {
@@ -219,17 +219,15 @@ export async function importInventoryRows(
         .returning();
       cat = inserted;
       existingCats.push(inserted);
-      if (qty > 0) {
-        const [insertedStock] = await db
-          .insert(stock)
-          .values({
-            skuCategoryId: inserted.id,
-            warehouseId,
-            qty,
-          })
-          .returning();
-        existingStock.push(insertedStock);
-      }
+      const [insertedStock] = await db
+        .insert(stock)
+        .values({
+          skuCategoryId: inserted.id,
+          warehouseId,
+          qty,
+        })
+        .returning();
+      existingStock.push(insertedStock);
       created += 1;
     } else {
       await db
@@ -245,7 +243,7 @@ export async function importInventoryRows(
           .set({ qty })
           .where(and(eq(stock.skuCategoryId, cat.id), eq(stock.warehouseId, warehouseId)));
         st.qty = qty;
-      } else if (qty > 0) {
+      } else {
         const [row] = await db
           .insert(stock)
           .values({ skuCategoryId: cat.id, warehouseId, qty })
@@ -822,7 +820,7 @@ export async function getDashboardStats() {
     .slice()
     .sort((a, b) => a.id - b.id)
     .map((w) => {
-      const rows = allStock.filter((s) => s.warehouseId === w.id && s.qty > 0);
+      const rows = allStock.filter((s) => s.warehouseId === w.id);
       const pairs = rows.reduce((n, s) => n + s.qty, 0);
       const skuIds = new Set<number>();
       for (const s of rows) {

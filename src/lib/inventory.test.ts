@@ -6,6 +6,7 @@ import {
   formatCartons,
   formatSizeRange,
   indiaToday,
+  skuPresentInWarehouse,
   skuSearchHaystack,
 } from "./constants";
 import { parseInventoryWorkbook } from "./parse-inventory-xlsx";
@@ -28,6 +29,15 @@ test("3.8 cartons means a partial 4th carton", () => {
   assert.equal(formatCartons(274, 72), "3.8");
   assert.equal(formatCartons(144, 72), "2");
   assert.equal(formatCartons(10, 0), "—");
+});
+
+test("a SKU with 0 pairs is still present in that godown", () => {
+  const sku = {
+    categories: [{ id: 1 }, { id: 2 }],
+    stock: { 10: { 1: 0 } },
+  };
+  assert.equal(skuPresentInWarehouse(sku, 10), true);
+  assert.equal(skuPresentInWarehouse(sku, 11), false);
 });
 
 test("remarks and colour are searchable", () => {

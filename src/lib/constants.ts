@@ -56,7 +56,21 @@ export function skuPairsInWarehouse(
   },
   warehouseId: number
 ): number {
-  return sku.categories.reduce((n, c) => n + (sku.stock[warehouseId]?.[c.id] ?? 0), 0);
+  const bag = sku.stock[warehouseId];
+  if (!bag) return 0;
+  return sku.categories.reduce((n, c) => n + (bag[c.id] ?? 0), 0);
+}
+
+export function skuPresentInWarehouse(
+  sku: {
+    categories: { id: number }[];
+    stock: Record<number, Record<number, number>>;
+  },
+  warehouseId: number
+): boolean {
+  const bag = sku.stock[warehouseId];
+  if (!bag) return false;
+  return sku.categories.some((c) => bag[c.id] !== undefined);
 }
 
 export function warehouseCountLabel(skuCount: number, pairs: number): string {

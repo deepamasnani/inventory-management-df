@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition } from "react";
 import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, formatCartons, inr, skuPairsInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, inr, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
@@ -63,12 +63,12 @@ export default function BillingTab({
 
   useEffect(() => {
     setActiveSku((prev) =>
-      prev && skuPairsInWarehouse(prev, effectiveWhId) > 0 ? prev : null
+      prev && skuPresentInWarehouse(prev, effectiveWhId) ? prev : null
     );
     setCart([]);
   }, [effectiveWhId]);
 
-  const inGodown = skus.filter((s) => skuPairsInWarehouse(s, effectiveWhId) > 0);
+  const inGodown = skus.filter((s) => skuPresentInWarehouse(s, effectiveWhId));
   const filteredSkus = productQuery.length > 0
     ? inGodown.filter((s) => skuSearchHaystack(s).includes(productQuery.toLowerCase()))
     : inGodown;
@@ -261,7 +261,7 @@ export default function BillingTab({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {activeSku.categories
-                  .filter((c) => (activeSku.stock[effectiveWhId]?.[c.id] ?? 0) > 0)
+                  .filter((c) => activeSku.stock[effectiveWhId]?.[c.id] !== undefined)
                   .map((c) => {
                   const avail = (activeSku.stock[effectiveWhId]?.[c.id] ?? 0) - cartQtyFor(c.id);
                   const listed = c.prices[billType as keyof typeof c.prices] || 0;

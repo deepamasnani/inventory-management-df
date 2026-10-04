@@ -5,7 +5,7 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPairsInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
@@ -156,7 +156,7 @@ export default function InventoryTab({
 
   const q = query.toLowerCase().trim();
   const filtered = skus.filter((s) => {
-    if (skuPairsInWarehouse(s, effectiveWhId) <= 0) return false;
+    if (!skuPresentInWarehouse(s, effectiveWhId)) return false;
     return skuSearchHaystack(s).includes(q);
   });
 
@@ -264,7 +264,7 @@ export default function InventoryTab({
       {brandNames.length === 0 ? (
         <Card>
           <div className="py-10 text-center text-sm themed-muted">
-            {q ? "No articles match this search in this godown." : "No stock in this godown yet. Import Excel or add an SKU with opening pairs."}
+            {q ? "No articles match this search in this godown." : "Nothing listed in this godown yet. Import Excel or add an SKU."}
           </div>
         </Card>
       ) : (
@@ -354,7 +354,7 @@ export default function InventoryTab({
                             </thead>
                             <tbody>
                               {s.categories
-                                .filter((c) => (s.stock[effectiveWhId]?.[c.id] ?? 0) > 0)
+                                .filter((c) => s.stock[effectiveWhId]?.[c.id] !== undefined)
                                 .map((c) => {
                                 const qty = s.stock[effectiveWhId]?.[c.id] ?? 0;
                                 return (
@@ -1089,7 +1089,7 @@ function TransferModal({
       <Label>Pairs to move</Label>
       <div className="grid grid-cols-2 gap-2 mt-1.5">
         {sku.categories
-          .filter((c) => (sku.stock[fromId]?.[c.id] ?? 0) > 0)
+          .filter((c) => sku.stock[fromId]?.[c.id] !== undefined)
           .map((c) => {
           const avail = sku.stock[fromId]?.[c.id] ?? 0;
           return (

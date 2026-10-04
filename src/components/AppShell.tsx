@@ -18,7 +18,7 @@ import {
   CreditCard,
   CheckCircle2,
 } from "lucide-react";
-import { inr, skuPairsInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { inr, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
 import Overview from "./Overview";
 import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
@@ -126,7 +126,7 @@ function AppShellInner({
     return {
       skus: skus
         .filter((s) => skuSearchHaystack(s).includes(q))
-        .filter((s) => warehouses.some((w) => skuPairsInWarehouse(s, w.id) > 0))
+        .filter((s) => warehouses.some((w) => skuPresentInWarehouse(s, w.id)))
         .slice(0, 5),
       bills: bills
         .filter((b) =>
@@ -356,7 +356,7 @@ function AppShellInner({
                                 onClick={() => {
                                   setInventoryQuery("");
                                   const stockedWh =
-                                    warehouses.find((w) => skuPairsInWarehouse(s, w.id) > 0) ??
+                                    warehouses.find((w) => skuPresentInWarehouse(s, w.id)) ??
                                     warehouses[0];
                                   go("inventory", {
                                     skuId: s.id,
