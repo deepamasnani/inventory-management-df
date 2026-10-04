@@ -46,7 +46,7 @@ export default function LoginForm() {
     startTransition(async () => {
       const result = await sendPasswordResetOtp(email);
       if ("error" in result) {
-        setError(result.error);
+        setError(result.error ?? "Could not send the code.");
         return;
       }
       setResetStep("otp");
