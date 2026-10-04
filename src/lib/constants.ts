@@ -14,6 +14,7 @@ export function inr(n: number): string {
 export function formatSizeRange(raw: string): string {
   const t = String(raw ?? "").trim();
   if (!t) return "";
+  if (/^\d+(?:\.\d+)?$/.test(t)) return String(Number(t));
   const m = t.match(/^(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)$/i);
   if (m) {
     const a = String(Number(m[1]));
@@ -46,6 +47,16 @@ export function skuSearchHaystack(sku: {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+export function skuPairsInWarehouse(
+  sku: {
+    categories: { id: number }[];
+    stock: Record<number, Record<number, number>>;
+  },
+  warehouseId: number
+): number {
+  return sku.categories.reduce((n, c) => n + (sku.stock[warehouseId]?.[c.id] ?? 0), 0);
 }
 
 export function indiaToday(): string {

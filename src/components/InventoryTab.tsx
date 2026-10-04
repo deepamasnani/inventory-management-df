@@ -5,7 +5,7 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuSearchHaystack } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPairsInWarehouse, skuSearchHaystack } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
@@ -149,7 +149,10 @@ export default function InventoryTab({
     : warehouses[0]?.id;
 
   const q = query.toLowerCase().trim();
-  const filtered = skus.filter((s) => skuSearchHaystack(s).includes(q));
+  const filtered = skus.filter((s) => {
+    if (skuPairsInWarehouse(s, effectiveWhId) <= 0) return false;
+    return skuSearchHaystack(s).includes(q);
+  });
 
   const brandGroups = filtered.reduce<Record<string, SkuWithDetails[]>>((acc, sku) => {
     const brand = sku.brand.trim() || "Unbranded";
@@ -244,7 +247,9 @@ export default function InventoryTab({
 
       {brandNames.length === 0 ? (
         <Card>
-          <div className="py-10 text-center text-sm themed-muted">No articles match this search.</div>
+          <div className="py-10 text-center text-sm themed-muted">
+            {q ? "No articles match this search in this godown." : "No stock in this godown yet. Import Excel or add an SKU with opening pairs."}
+          </div>
         </Card>
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -332,7 +337,9 @@ export default function InventoryTab({
                               </tr>
                             </thead>
                             <tbody>
-                              {s.categories.map((c) => {
+                              {s.categories
+                                .filter((c) => (s.stock[effectiveWhId]?.[c.id] ?? 0) > 0)
+                                .map((c) => {
                                 const qty = s.stock[effectiveWhId]?.[c.id] ?? 0;
                                 return (
                                   <tr key={c.id}>
@@ -1065,7 +1072,9 @@ function TransferModal({
       </div>
       <Label>Pairs to move</Label>
       <div className="grid grid-cols-2 gap-2 mt-1.5">
-        {sku.categories.map((c) => {
+        {sku.categories
+          .filter((c) => (sku.stock[fromId]?.[c.id] ?? 0) > 0)
+          .map((c) => {
           const avail = sku.stock[fromId]?.[c.id] ?? 0;
           return (
             <div key={c.id}>

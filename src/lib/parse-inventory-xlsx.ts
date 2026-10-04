@@ -20,11 +20,33 @@ function cell(v: unknown): string {
   return s;
 }
 
+function blankUnknown(s: string): boolean {
+  return !s || s === "?" || s === "??";
+}
+
 function num(v: unknown): number {
-  if (typeof v === "number") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   const s = String(v ?? "").replace(/,/g, "").trim();
+  if (blankUnknown(s)) return 0;
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Cells like `48( 21 CARTON)` are carton counts, not pairs-per-carton. */
+function pairsPerCarton(v: unknown, qty: number): number {
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : 0;
+  const s = String(v ?? "").replace(/,/g, "").trim();
+  if (blankUnknown(s)) return 0;
+  if (/carton/i.test(s)) {
+    const nums = [...s.matchAll(/(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+    const cartons = nums[0];
+    if (qty > 0 && cartons > 0) {
+      return Math.round((qty / cartons) * 10) / 10;
+    }
+    return nums[1] > 0 ? nums[1] : 0;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function headerKey(s: string) {
@@ -76,16 +98,18 @@ export function parseInventoryWorkbook(data: ArrayBuffer): InventoryImportRow[] 
     const brand = cell(row[cols.brand]);
     const name = cell(row[cols.name]);
     if (!brand || headerKey(brand) === "company") continue;
-    const size = formatSizeRange(cell(row[cols.size]));
+    const sizeRaw = row[cols.size];
+    const size = formatSizeRange(cell(sizeRaw));
     if (!name || !size) continue;
+    const qty = num(row[cols.qty]);
     out.push({
       brand,
       name,
       size,
-      qty: num(row[cols.qty]),
+      qty,
       colour: cols.colour >= 0 ? cell(row[cols.colour]) : "",
       remarks: cols.remarks >= 0 ? cell(row[cols.remarks]) : "",
-      pairsPerCarton: cols.ppc >= 0 ? num(row[cols.ppc]) : 0,
+      pairsPerCarton: cols.ppc >= 0 ? pairsPerCarton(row[cols.ppc], qty) : 0,
     });
   }
   return out;

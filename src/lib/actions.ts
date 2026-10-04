@@ -27,13 +27,6 @@ export async function getWarehouses() {
 export async function addWarehouse(name: string) {
   await requireAdmin();
   const [wh] = await db.insert(warehouses).values({ name }).returning();
-  // Create stock rows for all existing sku categories
-  const cats = await db.select({ id: skuCategories.id }).from(skuCategories);
-  if (cats.length > 0) {
-    await db.insert(stock).values(
-      cats.map((c) => ({ skuCategoryId: c.id, warehouseId: wh.id, qty: 0 }))
-    );
-  }
   revalidatePath("/");
   return wh;
 }
@@ -150,14 +143,16 @@ export async function addSku(data: {
       })
       .returning();
 
-    const stockRows = whList.map((w) => ({
-      skuCategoryId: inserted.id,
-      warehouseId: w.id,
-      qty: data.initialStock[w.id]?.[i] ?? 0,
-    }));
-    if (stockRows.length > 0) {
-      await db.insert(stock).values(stockRows);
-    }
+      const stockRows = whList
+        .map((w) => ({
+          skuCategoryId: inserted.id,
+          warehouseId: w.id,
+          qty: data.initialStock[w.id]?.[i] ?? 0,
+        }))
+        .filter((r) => r.qty > 0);
+      if (stockRows.length > 0) {
+        await db.insert(stock).values(stockRows);
+      }
   }
   revalidatePath("/");
 }
@@ -174,7 +169,6 @@ export async function importInventoryRows(
   const [wh] = await db.select().from(warehouses).where(eq(warehouses.id, warehouseId)).limit(1);
   if (!wh) throw new Error("Warehouse not found.");
 
-  const allWh = await db.select().from(warehouses);
   const existingSkus = await db.select().from(skus);
   const existingCats = await db.select().from(skuCategories);
   const existingStock = await db.select().from(stock);
@@ -225,14 +219,16 @@ export async function importInventoryRows(
         .returning();
       cat = inserted;
       existingCats.push(inserted);
-      const stockRows = allWh.map((w) => ({
-        skuCategoryId: inserted.id,
-        warehouseId: w.id,
-        qty: w.id === warehouseId ? qty : 0,
-      }));
-      if (stockRows.length > 0) {
-        const insertedStock = await db.insert(stock).values(stockRows).returning();
-        existingStock.push(...insertedStock);
+      if (qty > 0) {
+        const [insertedStock] = await db
+          .insert(stock)
+          .values({
+            skuCategoryId: inserted.id,
+            warehouseId,
+            qty,
+          })
+          .returning();
+        existingStock.push(insertedStock);
       }
       created += 1;
     } else {
@@ -249,7 +245,7 @@ export async function importInventoryRows(
           .set({ qty })
           .where(and(eq(stock.skuCategoryId, cat.id), eq(stock.warehouseId, warehouseId)));
         st.qty = qty;
-      } else {
+      } else if (qty > 0) {
         const [row] = await db
           .insert(stock)
           .values({ skuCategoryId: cat.id, warehouseId, qty })
@@ -411,12 +407,17 @@ export async function adjustStock(
   newQty: number
 ) {
   await requireAdmin();
-  await db
-    .update(stock)
-    .set({ qty: Math.max(0, newQty) })
-    .where(
-      and(eq(stock.skuCategoryId, skuCategoryId), eq(stock.warehouseId, warehouseId))
-    );
+  const qty = Math.max(0, newQty);
+  const [existing] = await db
+    .select()
+    .from(stock)
+    .where(and(eq(stock.skuCategoryId, skuCategoryId), eq(stock.warehouseId, warehouseId)))
+    .limit(1);
+  if (existing) {
+    await db.update(stock).set({ qty }).where(eq(stock.id, existing.id));
+  } else if (qty > 0) {
+    await db.insert(stock).values({ skuCategoryId, warehouseId, qty });
+  }
   revalidatePath("/");
 }
 

@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition } from "react";
 import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, formatCartons, inr, skuSearchHaystack } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, inr, skuPairsInWarehouse, skuSearchHaystack } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
@@ -59,9 +59,17 @@ export default function BillingTab({
     if (customer) setBillType(customer.type);
   }, [customerId]);
 
+  useEffect(() => {
+    setActiveSku((prev) =>
+      prev && skuPairsInWarehouse(prev, effectiveWhId) > 0 ? prev : null
+    );
+    setCart([]);
+  }, [effectiveWhId]);
+
+  const inGodown = skus.filter((s) => skuPairsInWarehouse(s, effectiveWhId) > 0);
   const filteredSkus = productQuery.length > 0
-    ? skus.filter((s) => skuSearchHaystack(s).includes(productQuery.toLowerCase()))
-    : skus;
+    ? inGodown.filter((s) => skuSearchHaystack(s).includes(productQuery.toLowerCase()))
+    : inGodown;
 
   function cartQtyFor(skuCatId: number) {
     return cart.filter((it) => it.skuCategoryId === skuCatId).reduce((a, it) => a + it.qty, 0);
@@ -206,7 +214,9 @@ export default function BillingTab({
             </div>
             {productOpen && (
               <div className="absolute z-10 top-full left-0 right-0 themed-card border rounded-lg mt-1 max-h-[220px] overflow-y-auto shadow-lg">
-                {filteredSkus.length === 0 && <div className="p-2.5 text-sm themed-muted">No matches.</div>}
+                {filteredSkus.length === 0 && (
+                  <div className="p-2.5 text-sm themed-muted">No stock in this godown.</div>
+                )}
                 {filteredSkus.map((s) => (
                   <div
                     key={s.id}
@@ -239,7 +249,9 @@ export default function BillingTab({
                 <span className="text-[11px] themed-muted font-mono">· pricing for {billType}</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {activeSku.categories.map((c) => {
+                {activeSku.categories
+                  .filter((c) => (activeSku.stock[effectiveWhId]?.[c.id] ?? 0) > 0)
+                  .map((c) => {
                   const avail = (activeSku.stock[effectiveWhId]?.[c.id] ?? 0) - cartQtyFor(c.id);
                   const listed = c.prices[billType as keyof typeof c.prices] || 0;
                   return (
