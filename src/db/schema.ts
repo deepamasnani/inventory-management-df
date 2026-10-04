@@ -57,12 +57,13 @@ export const bills = pgTable("bills", {
   paidCash: integer("paid_cash").notNull().default(0),
   paidOnline: integer("paid_online").notNull().default(0),
   balance: integer("balance").notNull().default(0),
+  status: text("status").notNull().default("active"),
 });
 
 export const billItems = pgTable("bill_items", {
   id: serial("id").primaryKey(),
   billId: integer("bill_id").notNull().references(() => bills.id, { onDelete: "cascade" }),
-  skuCategoryId: integer("sku_category_id").notNull().references(() => skuCategories.id),
+  skuCategoryId: integer("sku_category_id").references(() => skuCategories.id, { onDelete: "set null" }),
   skuName: text("sku_name").notNull(),
   brand: text("brand").notNull(),
   categoryLabel: text("category_label").notNull(),

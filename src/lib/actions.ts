@@ -11,10 +11,11 @@ import {
   billItems,
   payments,
 } from "@/db/schema";
-import { eq, and, sql, lt, desc, asc } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
+import { formatSizeRange, indiaToday } from "./constants";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -252,6 +253,127 @@ export async function importInventoryRows(
   return { created, updated };
 }
 
+export async function deleteBrandFolder(brand: string) {
+  await requireAdmin();
+  const folder = brand.trim() || "Unbranded";
+  const allSkus = await db.select().from(skus);
+  const ids = allSkus
+    .filter((s) => (s.brand.trim() || "Unbranded") === folder)
+    .map((s) => s.id);
+  if (ids.length === 0) return { deleted: 0 };
+  await db.transaction(async (tx) => {
+    await unlinkThenDeleteSkus(ids, tx);
+  });
+  revalidatePath("/");
+  return { deleted: ids.length };
+}
+
+async function unlinkThenDeleteSkus(
+  ids: number[],
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
+) {
+  if (ids.length === 0) return;
+  const cats = await tx
+    .select({ id: skuCategories.id })
+    .from(skuCategories)
+    .where(inArray(skuCategories.skuId, ids));
+  const catIds = cats.map((c) => c.id);
+  if (catIds.length > 0) {
+    await tx
+      .update(billItems)
+      .set({ skuCategoryId: null })
+      .where(inArray(billItems.skuCategoryId, catIds));
+  }
+  await tx.delete(skus).where(inArray(skus.id, ids));
+}
+
+export async function deleteSku(skuId: number) {
+  await requireAdmin();
+  await db.transaction(async (tx) => {
+    await unlinkThenDeleteSkus([skuId], tx);
+  });
+  revalidatePath("/");
+}
+
+export async function updateSkuDetails(data: {
+  id: number;
+  name: string;
+  brand: string;
+  categories: { id: number; label: string; colour: string; remarks: string }[];
+}) {
+  await requireAdmin();
+  const name = data.name.trim();
+  const brand = data.brand.trim();
+  if (!name || !brand) throw new Error("Article name and company are required.");
+  await db.update(skus).set({ name, brand }).where(eq(skus.id, data.id));
+  for (const cat of data.categories) {
+    await db
+      .update(skuCategories)
+      .set({
+        label: formatSizeRange(cat.label),
+        colour: cat.colour.trim(),
+        remarks: cat.remarks.trim(),
+      })
+      .where(and(eq(skuCategories.id, cat.id), eq(skuCategories.skuId, data.id)));
+  }
+  revalidatePath("/");
+}
+
+export async function transferStock(
+  fromWarehouseId: number,
+  toWarehouseId: number,
+  moves: { skuCategoryId: number; qty: number }[]
+) {
+  await requireAdmin();
+  if (fromWarehouseId === toWarehouseId) {
+    throw new Error("Pick two different warehouses.");
+  }
+  const [fromWh] = await db.select().from(warehouses).where(eq(warehouses.id, fromWarehouseId)).limit(1);
+  const [toWh] = await db.select().from(warehouses).where(eq(warehouses.id, toWarehouseId)).limit(1);
+  if (!fromWh || !toWh) throw new Error("Warehouse not found.");
+
+  await db.transaction(async (tx) => {
+    for (const move of moves) {
+      const qty = Math.max(0, Math.round(Number(move.qty) || 0));
+      if (qty <= 0) continue;
+      const [fromRow] = await tx
+        .update(stock)
+        .set({ qty: sql`${stock.qty} - ${qty}` })
+        .where(
+          and(
+            eq(stock.skuCategoryId, move.skuCategoryId),
+            eq(stock.warehouseId, fromWarehouseId),
+            sql`${stock.qty} >= ${qty}`
+          )
+        )
+        .returning();
+      if (!fromRow) {
+        throw new Error("Not enough pairs in the source warehouse.");
+      }
+      const [toRow] = await tx
+        .select()
+        .from(stock)
+        .where(
+          and(eq(stock.skuCategoryId, move.skuCategoryId), eq(stock.warehouseId, toWarehouseId))
+        )
+        .limit(1);
+      if (toRow) {
+        await tx
+          .update(stock)
+          .set({ qty: sql`${stock.qty} + ${qty}` })
+          .where(eq(stock.id, toRow.id));
+      } else {
+        await tx.insert(stock).values({
+          skuCategoryId: move.skuCategoryId,
+          warehouseId: toWarehouseId,
+          qty,
+        });
+      }
+    }
+  });
+  revalidatePath("/");
+}
+
 export async function updateSkuPrices(
   prices: Record<number, { A: number; B: number; C: number; D: number; pairsPerCarton?: number }>
 ) {
@@ -373,7 +495,7 @@ export async function settleCredit(
 
   await db.insert(payments).values({
     customerId,
-    date: new Date().toISOString().slice(0, 10),
+    date: indiaToday(),
     amount,
     method,
     note: "Credit settlement",
@@ -444,39 +566,42 @@ export type BillInput = {
 
 export async function createBill(input: BillInput) {
   await requireAdmin();
-  // Get next invoice number
-  const [countResult] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(bills);
-  const invoiceNo = `INV-${2001 + (countResult?.count ?? 0)}`;
-  const date = new Date().toISOString().slice(0, 10);
+  if (!input.items.length) throw new Error("Add at least one item.");
 
-  // Insert bill
-  const [bill] = await db
-    .insert(bills)
-    .values({
-      invoiceNo,
-      date,
-      customerId: input.customerId,
-      customerName: input.customerName,
-      customerType: input.customerType,
-      warehouseId: input.warehouseId,
-      warehouseName: input.warehouseName,
-      subtotal: input.subtotal,
-      discount: input.discount,
-      claim: input.claim,
-      total: input.total,
-      paidCash: input.paidCash,
-      paidOnline: input.paidOnline,
-      balance: input.balance,
-    })
-    .returning();
+  const date = indiaToday();
+  for (const item of input.items) {
+    if (!Number.isFinite(item.qty) || item.qty < 1) {
+      throw new Error("Each line needs at least 1 pair.");
+    }
+  }
+  const bill = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(bills)
+      .values({
+        invoiceNo: "pending",
+        date,
+        customerId: input.customerId,
+        customerName: input.customerName,
+        customerType: input.customerType,
+        warehouseId: input.warehouseId,
+        warehouseName: input.warehouseName,
+        subtotal: input.subtotal,
+        discount: input.discount,
+        claim: input.claim,
+        total: input.total,
+        paidCash: input.paidCash,
+        paidOnline: input.paidOnline,
+        balance: input.balance,
+        status: "active",
+      })
+      .returning();
 
-  // Insert bill items
-  if (input.items.length > 0) {
-    await db.insert(billItems).values(
+    const invoiceNo = `INV-${inserted.id}`;
+    await tx.update(bills).set({ invoiceNo }).where(eq(bills.id, inserted.id));
+
+    await tx.insert(billItems).values(
       input.items.map((it) => ({
-        billId: bill.id,
+        billId: inserted.id,
         skuCategoryId: it.skuCategoryId,
         skuName: it.skuName,
         brand: it.brand,
@@ -486,64 +611,125 @@ export async function createBill(input: BillInput) {
         subtotal: it.subtotal,
       }))
     );
-  }
 
-  // Deduct stock
-  for (const item of input.items) {
-    await db
-      .update(stock)
-      .set({ qty: sql`GREATEST(0, ${stock.qty} - ${item.qty})` })
-      .where(
-        and(
-          eq(stock.skuCategoryId, item.skuCategoryId),
-          eq(stock.warehouseId, input.warehouseId)
+    for (const item of input.items) {
+      const [row] = await tx
+        .update(stock)
+        .set({ qty: sql`${stock.qty} - ${item.qty}` })
+        .where(
+          and(
+            eq(stock.skuCategoryId, item.skuCategoryId),
+            eq(stock.warehouseId, input.warehouseId),
+            sql`${stock.qty} >= ${item.qty}`
+          )
         )
-      );
-  }
+        .returning();
+      if (!row) {
+        throw new Error(`Not enough stock for ${item.brand} ${item.skuName}.`);
+      }
+    }
 
-  // Update customer credit
-  await db
-    .update(customers)
-    .set({
-      creditBalance: sql`${customers.creditBalance} + ${input.balance} + ${input.claim}`,
-    })
-    .where(eq(customers.id, input.customerId));
+    await tx
+      .update(customers)
+      .set({
+        creditBalance: sql`${customers.creditBalance} + ${input.balance} + ${input.claim}`,
+      })
+      .where(eq(customers.id, input.customerId));
 
-  // Record payments
-  const paymentRows = [];
-  if (input.paidCash > 0) {
-    paymentRows.push({
-      customerId: input.customerId,
-      date,
-      amount: input.paidCash,
-      method: "Cash",
-      note: `Bill ${invoiceNo}`,
-    });
-  }
-  if (input.paidOnline > 0) {
-    paymentRows.push({
-      customerId: input.customerId,
-      date,
-      amount: input.paidOnline,
-      method: "Online",
-      note: `Bill ${invoiceNo}`,
-    });
-  }
-  if (input.claim > 0) {
-    paymentRows.push({
-      customerId: input.customerId,
-      date,
-      amount: input.claim,
-      method: "Claim",
-      note: `Applied to Bill ${invoiceNo}`,
-    });
-  }
-  if (paymentRows.length > 0) {
-    await db.insert(payments).values(paymentRows);
-  }
+    const paymentRows = [];
+    if (input.paidCash > 0) {
+      paymentRows.push({
+        customerId: input.customerId,
+        date,
+        amount: input.paidCash,
+        method: "Cash",
+        note: `Bill ${invoiceNo}`,
+      });
+    }
+    if (input.paidOnline > 0) {
+      paymentRows.push({
+        customerId: input.customerId,
+        date,
+        amount: input.paidOnline,
+        method: "Online",
+        note: `Bill ${invoiceNo}`,
+      });
+    }
+    if (input.claim > 0) {
+      paymentRows.push({
+        customerId: input.customerId,
+        date,
+        amount: input.claim,
+        method: "Claim",
+        note: `Applied to Bill ${invoiceNo}`,
+      });
+    }
+    if (paymentRows.length > 0) {
+      await tx.insert(payments).values(paymentRows);
+    }
+
+    return { ...inserted, invoiceNo };
+  });
 
   revalidatePath("/");
   return { ...bill, items: input.items };
+}
+
+export async function voidBill(billId: number) {
+  await requireAdmin();
+  await db.transaction(async (tx) => {
+    const [bill] = await tx
+      .select()
+      .from(bills)
+      .where(eq(bills.id, billId))
+      .for("update")
+      .limit(1);
+    if (!bill) throw new Error("Bill not found.");
+    if (bill.status === "voided") throw new Error("This bill is already voided.");
+
+    const items = await tx.select().from(billItems).where(eq(billItems.billId, billId));
+    for (const item of items) {
+      if (!item.skuCategoryId) continue;
+      const [row] = await tx
+        .select()
+        .from(stock)
+        .where(
+          and(
+            eq(stock.skuCategoryId, item.skuCategoryId),
+            eq(stock.warehouseId, bill.warehouseId)
+          )
+        )
+        .limit(1);
+      if (row) {
+        await tx
+          .update(stock)
+          .set({ qty: sql`${stock.qty} + ${item.qty}` })
+          .where(eq(stock.id, row.id));
+      }
+    }
+
+    await tx
+      .update(customers)
+      .set({
+        creditBalance: sql`${customers.creditBalance} - ${bill.balance} - ${bill.claim}`,
+      })
+      .where(eq(customers.id, bill.customerId));
+
+    await tx
+      .delete(payments)
+      .where(
+        and(
+          eq(payments.customerId, bill.customerId),
+          or(
+            eq(payments.note, `Bill ${bill.invoiceNo}`),
+            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`)
+          )
+        )
+      );
+
+    await tx.update(bills).set({ status: "voided" }).where(eq(bills.id, billId));
+  });
+  revalidatePath("/");
 }
 
 export async function getBills() {
@@ -576,12 +762,14 @@ export async function getDashboardStats() {
     return sum + s.qty * (cat?.priceA ?? 0);
   }, 0);
 
+  const liveBills = allBills.filter((b) => b.status !== "voided");
+
   const outstandingCredit = allCustomers.reduce(
     (sum, c) => sum + Math.max(0, c.creditBalance),
     0
   );
 
-  const revenueCollected = allBills.reduce(
+  const revenueCollected = liveBills.reduce(
     (sum, b) => sum + b.paidCash + b.paidOnline,
     0
   );
@@ -598,7 +786,7 @@ export async function getDashboardStats() {
   }[] = [];
 
   allStock
-    .filter((s) => s.qty < 8)
+    .filter((s) => s.qty > 0 && s.qty < 8)
     .forEach((s) => {
       const cat = allCats.find((c) => c.id === s.skuCategoryId);
       const sku = allSkus.find((sk) => sk.id === cat?.skuId);

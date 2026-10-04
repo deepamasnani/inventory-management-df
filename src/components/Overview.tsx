@@ -41,6 +41,7 @@ type Props = {
     paidOnline: number;
     balance: number;
     claim: number;
+    status?: string | null;
   }[];
   onNavigate?: (tab: string) => void;
   onLowStockClick?: (item: LowStockItem) => void;
@@ -181,7 +182,12 @@ export default function Overview({
               <tbody>
                 {recentBills.map((b) => (
                   <tr key={b.id} className="cursor-pointer" onClick={() => onNavigate?.("bills")}>
-                    <td className="font-semibold themed-title">{b.invoiceNo}</td>
+                    <td className="font-semibold themed-title">
+                      {b.invoiceNo}
+                      {b.status === "voided" ? (
+                        <span className="ml-2"><Tag tone="amber">Voided</Tag></span>
+                      ) : null}
+                    </td>
                     <td className="themed-muted">{b.customerName}</td>
                     <td className="font-semibold themed-title">{inr(b.total)}</td>
                     <td className="themed-muted">{inr(b.paidCash + b.paidOnline)}</td>

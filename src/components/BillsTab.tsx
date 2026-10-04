@@ -1,11 +1,15 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Printer } from "lucide-react";
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Tag } from "./ui/Tag";
 import { CUSTOMER_TYPES, inr } from "@/lib/constants";
-import { getBillItems } from "@/lib/actions";
+import { getBillItems, voidBill } from "@/lib/actions";
+import { useToast } from "./ui/Toast";
 
 type Bill = {
   id: number;
@@ -21,6 +25,7 @@ type Bill = {
   paidCash: number;
   paidOnline: number;
   balance: number;
+  status?: string | null;
 };
 
 type BillItem = {
@@ -56,6 +61,9 @@ export default function BillsTab({
   const [openItems, setOpenItems] = useState<BillItem[]>([]);
   const [query, setQuery] = useState(initialQuery);
   const [pending, startTransition] = useTransition();
+  const [voidTarget, setVoidTarget] = useState<Bill | null>(null);
+  const { toast } = useToast();
+  const router = useRouter();
 
   const openBill = bills.find((b) => b.id === openId);
   const q = query.toLowerCase().trim();
@@ -68,6 +76,22 @@ export default function BillsTab({
       const items = await getBillItems(billId);
       setOpenItems(items);
       setOpenId(billId);
+    });
+  }
+
+  function confirmVoid() {
+    if (!voidTarget) return;
+    const target = voidTarget;
+    startTransition(async () => {
+      try {
+        await voidBill(target.id);
+        toast(`Voided ${target.invoiceNo} — stock and credit restored`, "info");
+        setVoidTarget(null);
+        setOpenId(null);
+        router.refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not void this bill.", "error");
+      }
     });
   }
 
@@ -109,7 +133,12 @@ export default function BillsTab({
             <tbody>
               {filtered.map((b) => (
                 <tr key={b.id}>
-                  <td className="font-semibold themed-title">{b.invoiceNo}</td>
+                  <td className="font-semibold themed-title">
+                    {b.invoiceNo}
+                    {b.status === "voided" ? (
+                      <span className="ml-2"><Tag tone="amber">Voided</Tag></span>
+                    ) : null}
+                  </td>
                   <td className="themed-muted">{b.date}</td>
                   <td className="themed-muted">{b.customerName}</td>
                   <td className="themed-muted">{b.warehouseName}</td>
@@ -173,11 +202,26 @@ export default function BillsTab({
 
           <div className="flex justify-end gap-2 mt-4">
             <button className="btn" onClick={() => setOpenId(null)}>Close</button>
+            {openBill.status !== "voided" && (
+              <button className="btn" style={{ color: "#E05A5A" }} onClick={() => setVoidTarget(openBill)}>
+                Void bill
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => onReprint({ ...openBill, items: openItems })}>
               <Printer size={13} className="inline -mt-0.5" /> View printable copy
             </button>
           </div>
         </ModalShell>
+      )}
+      {voidTarget && (
+        <ConfirmDialog
+          danger
+          title={`Void ${voidTarget.invoiceNo}?`}
+          message="Pairs go back to that warehouse and the customer's credit is reversed. The bill stays in history as voided."
+          confirmLabel={pending ? "Voiding…" : "Void bill"}
+          onConfirm={confirmVoid}
+          onCancel={() => setVoidTarget(null)}
+        />
       )}
     </div>
   );

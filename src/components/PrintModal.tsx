@@ -15,6 +15,7 @@ type BillForPrint = {
   paidCash: number;
   paidOnline: number;
   balance: number;
+  status?: string | null;
   items: {
     brand: string;
     skuName: string;
@@ -44,6 +45,11 @@ export default function PrintModal({
             <div className="font-display font-bold text-xl" style={{ color: "#1C2333" }}>
               Dev Footwear Co.
             </div>
+            {bill.status === "voided" && (
+              <div className="text-sm font-bold mt-1" style={{ color: "#B45309" }}>
+                VOIDED
+              </div>
+            )}
             <div className="text-[11px]" style={{ color: "#5B6478" }}>
               {bill.warehouseName}
             </div>

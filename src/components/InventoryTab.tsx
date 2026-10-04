@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
-import { Search, Plus, IndianRupee, Check, Trash2, Folder, FolderOpen, ChevronRight, FileSpreadsheet } from "lucide-react";
+import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, FileSpreadsheet, Pencil, ArrowLeftRight } from "lucide-react";
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuSearchHaystack } from "@/lib/constants";
-import { adjustStock, addSku, importInventoryRows, updateSkuPrices } from "@/lib/actions";
+import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
 import { useToast } from "./ui/Toast";
@@ -100,6 +101,10 @@ export default function InventoryTab({
     focusTarget?.skuId ?? null
   );
   const [openBrands, setOpenBrands] = useState<Record<string, boolean>>({});
+  const [deleteBrand, setDeleteBrand] = useState<string | null>(null);
+  const [editSkuId, setEditSkuId] = useState<number | null>(null);
+  const [deleteSkuTarget, setDeleteSkuTarget] = useState<SkuWithDetails | null>(null);
+  const [transferSku, setTransferSku] = useState<SkuWithDetails | null>(null);
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
   const rowRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -156,6 +161,7 @@ export default function InventoryTab({
   const brandNames = Object.keys(brandGroups).sort((a, b) => a.localeCompare(b));
 
   const priceSku = skus.find((s) => s.id === priceSkuId) || null;
+  const editSku = skus.find((s) => s.id === editSkuId) || null;
 
   function isBrandOpen(brand: string) {
     if (q) return true;
@@ -171,6 +177,26 @@ export default function InventoryTab({
     startTransition(async () => {
       await adjustStock(catId, effectiveWhId, newQty);
       toast("Stock updated");
+    });
+  }
+
+  function confirmDeleteSku() {
+    if (!deleteSkuTarget) return;
+    const target = deleteSkuTarget;
+    startTransition(async () => {
+      await deleteSku(target.id);
+      toast(`Deleted article ${target.brand} ${target.name}`, "info");
+      setDeleteSkuTarget(null);
+    });
+  }
+
+  function confirmDeleteBrand() {
+    if (!deleteBrand) return;
+    const name = deleteBrand;
+    startTransition(async () => {
+      const result = await deleteBrandFolder(name);
+      toast(`Deleted ${name} (${result.deleted} article${result.deleted === 1 ? "" : "s"})`, "info");
+      setDeleteBrand(null);
     });
   }
 
@@ -233,29 +259,43 @@ export default function InventoryTab({
             }, 0);
             return (
               <Card key={brand} className="!p-0 overflow-hidden">
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left border-none"
-                  style={{ background: "transparent", color: "var(--text)" }}
-                  onClick={() => toggleBrand(brand)}
-                >
-                  <ChevronRight
-                    size={16}
-                    className="themed-muted shrink-0 transition-transform"
-                    style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-                  />
-                  {open ? (
-                    <FolderOpen size={18} style={{ color: "var(--accent)" }} />
-                  ) : (
-                    <Folder size={18} className="themed-muted" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold themed-title">{brand}</div>
-                    <div className="text-[11px] themed-muted mt-0.5">
-                      {articles.length} article{articles.length === 1 ? "" : "s"} · {pairCount} pairs
+                <div className="flex items-center gap-1 pr-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 flex items-center gap-3 px-4 py-3.5 text-left border-none"
+                    style={{ background: "transparent", color: "var(--text)" }}
+                    onClick={() => toggleBrand(brand)}
+                  >
+                    <ChevronRight
+                      size={16}
+                      className="themed-muted shrink-0 transition-transform"
+                      style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
+                    />
+                    {open ? (
+                      <FolderOpen size={18} style={{ color: "var(--accent)" }} />
+                    ) : (
+                      <Folder size={18} className="themed-muted" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold themed-title">{brand}</div>
+                      <div className="text-[11px] themed-muted mt-0.5">
+                        {articles.length} article{articles.length === 1 ? "" : "s"} · {pairCount} pairs
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn text-xs px-2.5 py-1.5 shrink-0"
+                    title={`Delete ${brand}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteBrand(brand);
+                    }}
+                    style={{ color: "#E05A5A" }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
 
                 {open && (
                   <div style={{ borderTop: "1px solid var(--border)" }}>
@@ -321,12 +361,35 @@ export default function InventoryTab({
                             </tbody>
                           </table>
                         </div>
-                        <button
-                          className="btn text-xs px-2.5 py-1 shrink-0"
-                          onClick={() => setPriceSkuId(s.id)}
-                        >
-                          <IndianRupee size={12} className="inline -mt-0.5" /> Prices
-                        </button>
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                          <button
+                            className="btn text-xs px-2.5 py-1"
+                            onClick={() => setEditSkuId(s.id)}
+                          >
+                            <Pencil size={12} className="inline -mt-0.5" /> Edit
+                          </button>
+                          {warehouses.length > 1 && (
+                            <button
+                              className="btn text-xs px-2.5 py-1"
+                              onClick={() => setTransferSku(s)}
+                            >
+                              <ArrowLeftRight size={12} className="inline -mt-0.5" /> Transfer
+                            </button>
+                          )}
+                          <button
+                            className="btn text-xs px-2.5 py-1"
+                            onClick={() => setPriceSkuId(s.id)}
+                          >
+                            <IndianRupee size={12} className="inline -mt-0.5" /> Prices
+                          </button>
+                          <button
+                            className="btn text-xs px-2.5 py-1"
+                            style={{ color: "#E05A5A" }}
+                            onClick={() => setDeleteSkuTarget(s)}
+                          >
+                            <Trash2 size={12} className="inline -mt-0.5" /> Delete
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -353,6 +416,42 @@ export default function InventoryTab({
         <EditPricesModal
           sku={priceSku}
           onClose={() => setPriceSkuId(null)}
+        />
+      )}
+      {editSku && (
+        <EditSkuModal
+          sku={editSku}
+          onClose={() => setEditSkuId(null)}
+        />
+      )}
+      {transferSku && (
+        <TransferModal
+          sku={transferSku}
+          warehouses={warehouses}
+          fromWarehouseId={effectiveWhId}
+          onClose={() => setTransferSku(null)}
+        />
+      )}
+      {deleteSkuTarget && (
+        <ConfirmDialog
+          danger
+          title={`Delete ${deleteSkuTarget.brand} ${deleteSkuTarget.name}?`}
+          message="This article is removed from every warehouse. Past bills keep their line items."
+          confirmLabel={pending ? "Deleting…" : "Delete article"}
+          onConfirm={confirmDeleteSku}
+          onCancel={() => setDeleteSkuTarget(null)}
+        />
+      )}
+      {deleteBrand && (
+        <ConfirmDialog
+          danger
+          title={`Delete ${deleteBrand}?`}
+          message={`This removes the whole folder and all ${
+            skus.filter((s) => (s.brand.trim() || "Unbranded") === deleteBrand).length
+          } articles inside it from every warehouse. Past bills keep their line items.`}
+          confirmLabel={pending ? "Deleting…" : "Delete folder"}
+          onConfirm={confirmDeleteBrand}
+          onCancel={() => setDeleteBrand(null)}
         />
       )}
     </div>
@@ -802,6 +901,193 @@ function ImportExcelModal({
         <button className="btn btn-primary" onClick={submit} disabled={pending || rows.length === 0}>
           Import into stock
         </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function EditSkuModal({
+  sku,
+  onClose,
+}: {
+  sku: SkuWithDetails;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(sku.name);
+  const [brand, setBrand] = useState(sku.brand);
+  const [cats, setCats] = useState(() =>
+    sku.categories.map((c) => ({
+      id: c.id,
+      label: c.label,
+      colour: c.colour,
+      remarks: c.remarks,
+    }))
+  );
+  const [pending, startTransition] = useTransition();
+  const { toast } = useToast();
+
+  function submit() {
+    if (!name.trim() || !brand.trim()) {
+      toast("Company and article are required", "error");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await updateSkuDetails({ id: sku.id, name, brand, categories: cats });
+        toast("Article updated");
+        onClose();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not update article.", "error");
+      }
+    });
+  }
+
+  return (
+    <ModalShell title="Edit article" onClose={onClose} wide>
+      <div className="flex gap-2.5 mb-3">
+        <div className="flex-1">
+          <Label>Article</Label>
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="flex-1">
+          <Label>Company</Label>
+          <input className="field" value={brand} onChange={(e) => setBrand(e.target.value)} />
+        </div>
+      </div>
+      <Label>Size ranges</Label>
+      <table className="w-full border-collapse mt-1.5">
+        <thead>
+          <tr>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Range</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Colour</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cats.map((c) => (
+            <tr key={c.id}>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-sm"
+                  value={c.label}
+                  onChange={(e) =>
+                    setCats((prev) => prev.map((row) => (row.id === c.id ? { ...row, label: e.target.value } : row)))
+                  }
+                />
+              </td>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-sm"
+                  value={c.colour}
+                  onChange={(e) =>
+                    setCats((prev) => prev.map((row) => (row.id === c.id ? { ...row, colour: e.target.value } : row)))
+                  }
+                />
+              </td>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-sm"
+                  value={c.remarks}
+                  onChange={(e) =>
+                    setCats((prev) => prev.map((row) => (row.id === c.id ? { ...row, remarks: e.target.value } : row)))
+                  }
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex justify-end gap-2 mt-4">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={pending}>Save article</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function TransferModal({
+  sku,
+  warehouses,
+  fromWarehouseId,
+  onClose,
+}: {
+  sku: SkuWithDetails;
+  warehouses: Warehouse[];
+  fromWarehouseId: number;
+  onClose: () => void;
+}) {
+  const [fromId, setFromId] = useState(fromWarehouseId);
+  const [toId, setToId] = useState(
+    warehouses.find((w) => w.id !== fromWarehouseId)?.id ?? warehouses[0]?.id
+  );
+  const [qtys, setQtys] = useState<Record<number, string>>({});
+  const [pending, startTransition] = useTransition();
+  const { toast } = useToast();
+
+  function submit() {
+    const moves = sku.categories
+      .map((c) => ({ skuCategoryId: c.id, qty: Number(qtys[c.id]) || 0 }))
+      .filter((m) => m.qty > 0);
+    if (moves.length === 0) {
+      toast("Enter pairs to move", "error");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await transferStock(fromId, toId, moves);
+        toast("Stock transferred");
+        onClose();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not transfer stock.", "error");
+      }
+    });
+  }
+
+  return (
+    <ModalShell title={`Transfer ${sku.brand} ${sku.name}`} onClose={onClose} wide>
+      <div className="flex gap-2.5 mb-3">
+        <div className="flex-1">
+          <Label>From</Label>
+          <select className="field" value={fromId} onChange={(e) => setFromId(Number(e.target.value))}>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <Label>To</Label>
+          <select className="field" value={toId} onChange={(e) => setToId(Number(e.target.value))}>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <Label>Pairs to move</Label>
+      <div className="grid grid-cols-2 gap-2 mt-1.5">
+        {sku.categories.map((c) => {
+          const avail = sku.stock[fromId]?.[c.id] ?? 0;
+          return (
+            <div key={c.id}>
+              <div className="text-xs themed-muted mb-1">
+                {[c.label, c.colour].filter(Boolean).join(" · ")} · {avail} here
+              </div>
+              <input
+                className="field font-mono text-center"
+                type="number"
+                min={0}
+                max={avail}
+                placeholder="0"
+                value={qtys[c.id] || ""}
+                onChange={(e) => setQtys((p) => ({ ...p, [c.id]: e.target.value }))}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={pending}>Transfer</button>
       </div>
     </ModalShell>
   );

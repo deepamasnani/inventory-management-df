@@ -48,6 +48,10 @@ export function skuSearchHaystack(sku: {
     .toLowerCase();
 }
 
+export function indiaToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
 export type CustomerType = "A" | "B" | "C" | "D";
 
 export const DEFAULT_ADMIN = {

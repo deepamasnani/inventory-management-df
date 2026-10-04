@@ -47,6 +47,7 @@ type Bill = {
   paidCash: number;
   paidOnline: number;
   balance: number;
+  status?: string | null;
 };
 
 type DashboardStats = {

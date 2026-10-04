@@ -64,6 +64,8 @@ export async function ensureAdminTable() {
   await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS colour TEXT NOT NULL DEFAULT ''`);
   await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS remarks TEXT NOT NULL DEFAULT ''`);
   await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS pairs_per_carton DOUBLE PRECISION NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE bill_items ALTER COLUMN sku_category_id DROP NOT NULL`);
+  await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`);
 }
 
 export async function ensureDefaultAdmin() {

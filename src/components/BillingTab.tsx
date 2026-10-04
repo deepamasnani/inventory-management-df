@@ -129,13 +129,17 @@ export default function BillingTab({
       balance,
     };
     startTransition(async () => {
-      const bill = await createBill(input);
-      onBillCreated(bill);
-      setCart([]);
-      setCash("");
-      setOnline("");
-      setDiscount("");
-      setClaim("");
+      try {
+        const bill = await createBill(input);
+        onBillCreated(bill);
+        setCart([]);
+        setCash("");
+        setOnline("");
+        setDiscount("");
+        setClaim("");
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not save the bill.", "error");
+      }
     });
   }
 
