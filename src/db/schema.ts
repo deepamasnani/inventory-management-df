@@ -1,4 +1,4 @@
-import { pgTable, text, integer, numeric, timestamp, serial, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, timestamp, serial, uniqueIndex, real } from "drizzle-orm/pg-core";
 
 export const warehouses = pgTable("warehouses", {
   id: serial("id").primaryKey(),
@@ -20,6 +20,9 @@ export const skuCategories = pgTable("sku_categories", {
   priceB: integer("price_b").notNull().default(0),
   priceC: integer("price_c").notNull().default(0),
   priceD: integer("price_d").notNull().default(0),
+  colour: text("colour").notNull().default(""),
+  remarks: text("remarks").notNull().default(""),
+  pairsPerCarton: real("pairs_per_carton").notNull().default(0),
 });
 
 export const stock = pgTable("stock", {

@@ -18,7 +18,7 @@ import {
   CreditCard,
   CheckCircle2,
 } from "lucide-react";
-import { inr } from "@/lib/constants";
+import { inr, skuSearchHaystack } from "@/lib/constants";
 import Overview from "./Overview";
 import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
@@ -122,7 +122,7 @@ function AppShellInner({
       return { skus: [] as SkuWithDetails[], bills: [] as Bill[], customers: [] as Customer[] };
     }
     return {
-      skus: skus.filter((s) => `${s.brand} ${s.name}`.toLowerCase().includes(q)).slice(0, 5),
+      skus: skus.filter((s) => skuSearchHaystack(s).includes(q)).slice(0, 5),
       bills: bills
         .filter((b) =>
           `${b.invoiceNo} ${b.customerName} ${b.warehouseName}`.toLowerCase().includes(q)
@@ -363,7 +363,13 @@ function AppShellInner({
                                     <div className="text-[13px] font-semibold themed-title truncate">
                                       {s.brand} {s.name}
                                     </div>
-                                    <div className="text-[11px] themed-muted">Article</div>
+                                    <div className="text-[11px] themed-muted truncate">
+                                      {s.categories
+                                        .map((c) => [c.label, c.colour, c.remarks].filter(Boolean).join(" · "))
+                                        .filter(Boolean)
+                                        .slice(0, 2)
+                                        .join(" · ") || "Article"}
+                                    </div>
                                   </div>
                                 </div>
                               </button>

@@ -61,6 +61,9 @@ export async function ensureAdminTable() {
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+  await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS colour TEXT NOT NULL DEFAULT ''`);
+  await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS remarks TEXT NOT NULL DEFAULT ''`);
+  await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS pairs_per_carton DOUBLE PRECISION NOT NULL DEFAULT 0`);
 }
 
 export async function ensureDefaultAdmin() {

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
-import { Search, Plus, IndianRupee, Check, Trash2, Folder, FolderOpen, ChevronRight } from "lucide-react";
+import { Search, Plus, IndianRupee, Check, Trash2, Folder, FolderOpen, ChevronRight, FileSpreadsheet } from "lucide-react";
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
-import { CAT_LABELS, CUSTOMER_TYPES, inr } from "@/lib/constants";
-import { adjustStock, addSku, updateSkuPrices } from "@/lib/actions";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuSearchHaystack } from "@/lib/constants";
+import { adjustStock, addSku, importInventoryRows, updateSkuPrices } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
+import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
 import { useToast } from "./ui/Toast";
 
 type Warehouse = { id: number; name: string };
@@ -93,6 +94,7 @@ export default function InventoryTab({
   );
   const [query, setQuery] = useState(initialQuery);
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [priceSkuId, setPriceSkuId] = useState<number | null>(null);
   const [highlightSkuId, setHighlightSkuId] = useState<number | null>(
     focusTarget?.skuId ?? null
@@ -142,9 +144,7 @@ export default function InventoryTab({
     : warehouses[0]?.id;
 
   const q = query.toLowerCase().trim();
-  const filtered = skus.filter((s) =>
-    (s.name + s.brand).toLowerCase().includes(q)
-  );
+  const filtered = skus.filter((s) => skuSearchHaystack(s).includes(q));
 
   const brandGroups = filtered.reduce<Record<string, SkuWithDetails[]>>((acc, sku) => {
     const brand = sku.brand.trim() || "Unbranded";
@@ -197,15 +197,23 @@ export default function InventoryTab({
             <input
               className="field field-search"
               style={{ width: "100%" }}
-              placeholder="Search brand"
+              placeholder="Search brand, article, colour, remarks"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-          <Plus size={14} className="inline -mt-0.5" /> Add SKU
-        </button>
+        <div className="flex gap-2">
+          <button className="btn" onClick={() => setShowImport(true)} disabled={warehouses.length === 0}>
+            <FileSpreadsheet size={14} className="inline -mt-0.5" /> Import Excel
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            <Plus size={14} className="inline -mt-0.5" /> Add SKU
+          </button>
+        </div>
+      </div>
+      <div className="text-xs themed-muted -mt-1 mb-2">
+        Cartons = pairs ÷ pairs per carton. A value like 3.8 means the 4th carton is not full.
       </div>
 
       {brandNames.length === 0 ? (
@@ -270,23 +278,48 @@ export default function InventoryTab({
                           <div className="text-[11px] themed-muted mb-0.5">Article</div>
                           <div className="font-semibold themed-title">{s.name}</div>
                         </div>
-                        <div className="flex-1 min-w-[200px]">
-                          <div className="flex flex-wrap gap-2.5">
-                            {s.categories.map((c) => {
-                              const qty = s.stock[effectiveWhId]?.[c.id] ?? 0;
-                              return (
-                                <div key={c.id} className="text-center min-w-[72px]">
-                                  <div className="text-[10px] themed-muted mb-1 font-medium">
-                                    {c.label}
-                                  </div>
-                                  <StockCell
-                                    qty={qty}
-                                    onSave={(v) => handleAdjust(c.id, v)}
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
+                        <div className="flex-1 min-w-[240px] overflow-x-auto">
+                          <table className="w-full text-left">
+                            <thead>
+                              <tr className="text-[10px] uppercase themed-muted">
+                                <th className="font-semibold pb-1 pr-3">Range</th>
+                                <th className="font-semibold pb-1 pr-3">Colour</th>
+                                <th className="font-semibold pb-1 pr-3">Remarks</th>
+                                <th className="font-semibold pb-1 pr-3 text-center">Pairs</th>
+                                <th className="font-semibold pb-1 pr-3 text-center" title="3.8 means the 4th carton is not full">
+                                  Cartons
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {s.categories.map((c) => {
+                                const qty = s.stock[effectiveWhId]?.[c.id] ?? 0;
+                                return (
+                                  <tr key={c.id}>
+                                    <td className="py-1 pr-3 text-sm font-medium themed-title whitespace-nowrap">
+                                      {c.label}
+                                    </td>
+                                    <td className="py-1 pr-3 text-xs themed-muted">{c.colour || "—"}</td>
+                                    <td className="py-1 pr-3 text-xs themed-muted">{c.remarks || "—"}</td>
+                                    <td className="py-1 pr-3 text-center">
+                                      <StockCell
+                                        qty={qty}
+                                        onSave={(v) => handleAdjust(c.id, v)}
+                                      />
+                                    </td>
+                                    <td className="py-1 pr-3 text-center font-mono text-sm themed-title whitespace-nowrap">
+                                      {formatCartons(qty, c.pairsPerCarton)}
+                                      {c.pairsPerCarton > 0 && (
+                                        <div className="text-[10px] themed-muted font-sans">
+                                          {c.pairsPerCarton}/ctn
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                         <button
                           className="btn text-xs px-2.5 py-1 shrink-0"
@@ -310,6 +343,12 @@ export default function InventoryTab({
           onClose={() => setShowAdd(false)}
         />
       )}
+      {showImport && (
+        <ImportExcelModal
+          warehouses={warehouses}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       {priceSku && (
         <EditPricesModal
           sku={priceSku}
@@ -323,6 +362,9 @@ export default function InventoryTab({
 type SizeDraft = {
   key: number;
   label: string;
+  colour: string;
+  remarks: string;
+  ppc: string;
   A: string;
   B: string;
   C: string;
@@ -331,15 +373,20 @@ type SizeDraft = {
 };
 
 function defaultSizeRows(): SizeDraft[] {
-  return CAT_LABELS.map((label, i) => ({
-    key: i + 1,
-    label,
-    A: "",
-    B: "",
-    C: "",
-    D: "",
-    qty: "",
-  }));
+  return [
+    {
+      key: 1,
+      label: "6-9",
+      colour: "",
+      remarks: "",
+      ppc: "",
+      A: "",
+      B: "",
+      C: "",
+      D: "",
+      qty: "",
+    },
+  ];
 }
 
 function AddSkuModal({
@@ -352,7 +399,7 @@ function AddSkuModal({
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [sizes, setSizes] = useState<SizeDraft[]>(defaultSizeRows);
-  const nextKey = useRef(CAT_LABELS.length + 1);
+  const nextKey = useRef(2);
   const [stockWhId, setStockWhId] = useState(warehouses[0]?.id);
   const [applyAll, setApplyAll] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -366,7 +413,7 @@ function AddSkuModal({
     const key = nextKey.current++;
     setSizes((prev) => [
       ...prev,
-      { key, label: "", A: "", B: "", C: "", D: "", qty: "" },
+      { key, label: "", colour: "", remarks: "", ppc: "", A: "", B: "", C: "", D: "", qty: "" },
     ]);
   }
 
@@ -378,12 +425,15 @@ function AddSkuModal({
     if (!name.trim() || !brand.trim()) return;
     const named = sizes.filter((s) => s.label.trim());
     if (named.length === 0) {
-      toast("Add at least one size");
+      toast("Add at least one size range");
       return;
     }
 
     const categories = named.map((s) => ({
-      label: s.label.trim(),
+      label: formatSizeRange(s.label),
+      colour: s.colour.trim(),
+      remarks: s.remarks.trim(),
+      pairsPerCarton: Number(s.ppc) || 0,
       priceA: Number(s.A) || 0,
       priceB: Number(s.B) || 0,
       priceC: Number(s.C) || 0,
@@ -418,11 +468,14 @@ function AddSkuModal({
         </div>
       </div>
 
-      <Label>Price per size category × customer type (₹)</Label>
+      <Label>Size ranges (prices optional)</Label>
       <table className="w-full border-collapse mt-1.5">
         <thead>
           <tr>
-            <th className="text-left text-[11px] uppercase themed-muted p-2">Category</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Range</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Colour</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Remarks</th>
+            <th className="text-center text-[11px] uppercase themed-muted p-2">Pairs/ctn</th>
             {CUSTOMER_TYPES.map((t) => (
               <th key={t.id} className="text-center text-[11px] uppercase themed-muted p-2">{t.id}</th>
             ))}
@@ -432,31 +485,57 @@ function AddSkuModal({
         <tbody>
           {sizes.map((s) => (
             <tr key={s.key}>
-              <td className="p-2" style={{ borderBottom: "1px solid var(--border)" }}>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
                 <input
                   className="field text-sm"
                   value={s.label}
-                  placeholder="e.g. UK 14-15"
+                  placeholder="6*9 or 6-9"
                   onChange={(e) => updateSize(s.key, { label: e.target.value })}
                 />
               </td>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-sm"
+                  value={s.colour}
+                  placeholder="Black"
+                  onChange={(e) => updateSize(s.key, { colour: e.target.value })}
+                />
+              </td>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-sm"
+                  value={s.remarks}
+                  placeholder="e.g. HAWAI LOOSE"
+                  onChange={(e) => updateSize(s.key, { remarks: e.target.value })}
+                />
+              </td>
+              <td className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-center font-mono"
+                  type="number"
+                  step="0.1"
+                  value={s.ppc}
+                  placeholder="72"
+                  onChange={(e) => updateSize(s.key, { ppc: e.target.value })}
+                />
+              </td>
               {(["A", "B", "C", "D"] as const).map((t) => (
-                <td key={t} className="p-2" style={{ borderBottom: "1px solid var(--border)" }}>
+                <td key={t} className="p-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
                   <input
                     className="field text-center font-mono"
                     type="number"
                     value={s[t]}
                     onChange={(e) => updateSize(s.key, { [t]: e.target.value })}
-                    placeholder="0"
+                    placeholder="—"
                   />
                 </td>
               ))}
-              <td className="p-2 text-right" style={{ borderBottom: "1px solid var(--border)" }}>
+              <td className="p-1.5 text-right" style={{ borderBottom: "1px solid var(--border)" }}>
                 <button
                   type="button"
                   className="w-8 h-8 rounded-lg border-none flex items-center justify-center"
                   style={{ background: "color-mix(in srgb, #E05A5A 14%, var(--surface))", color: "#E05A5A" }}
-                  title="Remove size"
+                  title="Remove size range"
                   onClick={() => removeSize(s.key)}
                 >
                   <Trash2 size={14} />
@@ -467,7 +546,7 @@ function AddSkuModal({
         </tbody>
       </table>
       <button type="button" className="btn text-xs mt-2" onClick={addSize}>
-        <Plus size={13} className="inline -mt-0.5" /> Add size
+        <Plus size={13} className="inline -mt-0.5" /> Add size range
       </button>
 
       <div className="mt-4">
@@ -489,7 +568,7 @@ function AddSkuModal({
           {sizes.map((s) => (
             <div key={s.key}>
               <div className="text-xs themed-muted mb-1 truncate">
-                {s.label.trim() || "Untitled size"}
+                {[s.label.trim() || "Untitled", s.colour.trim()].filter(Boolean).join(" · ")}
               </div>
               <input
                 className="field font-mono text-center"
@@ -519,13 +598,14 @@ function EditPricesModal({
   onClose: () => void;
 }) {
   const [prices, setPrices] = useState(() => {
-    const map: Record<number, { A: string; B: string; C: string; D: string }> = {};
+    const map: Record<number, { A: string; B: string; C: string; D: string; ppc: string }> = {};
     sku.categories.forEach((c) => {
       map[c.id] = {
-        A: String(c.prices.A),
-        B: String(c.prices.B),
-        C: String(c.prices.C),
-        D: String(c.prices.D),
+        A: c.prices.A ? String(c.prices.A) : "",
+        B: c.prices.B ? String(c.prices.B) : "",
+        C: c.prices.C ? String(c.prices.C) : "",
+        D: c.prices.D ? String(c.prices.D) : "",
+        ppc: c.pairsPerCarton ? String(c.pairsPerCarton) : "",
       };
     });
     return map;
@@ -534,13 +614,14 @@ function EditPricesModal({
   const { toast } = useToast();
 
   function submit() {
-    const cleaned: Record<number, { A: number; B: number; C: number; D: number }> = {};
+    const cleaned: Record<number, { A: number; B: number; C: number; D: number; pairsPerCarton: number }> = {};
     sku.categories.forEach((c) => {
       cleaned[c.id] = {
         A: Number(prices[c.id].A) || 0,
         B: Number(prices[c.id].B) || 0,
         C: Number(prices[c.id].C) || 0,
         D: Number(prices[c.id].D) || 0,
+        pairsPerCarton: Number(prices[c.id].ppc) || 0,
       };
     });
     startTransition(async () => {
@@ -552,11 +633,12 @@ function EditPricesModal({
 
   return (
     <ModalShell title={`${sku.brand} ${sku.name} — prices`} onClose={onClose} wide>
-      <Label>Price per size category × customer type (₹)</Label>
+      <Label>Price per size range × customer type (₹) — optional</Label>
       <table className="w-full border-collapse mt-1.5">
         <thead>
           <tr>
-            <th className="text-left text-[11px] uppercase themed-muted p-2">Category</th>
+            <th className="text-left text-[11px] uppercase themed-muted p-2">Range</th>
+            <th className="text-center text-[11px] uppercase themed-muted p-2">Pairs/ctn</th>
             {CUSTOMER_TYPES.map((t) => (
               <th key={t.id} className="text-center text-[11px] uppercase themed-muted p-2">{t.label}</th>
             ))}
@@ -565,12 +647,32 @@ function EditPricesModal({
         <tbody>
           {sku.categories.map((c) => (
             <tr key={c.id}>
-              <td className="p-2 text-sm font-semibold border-b border-stone-100">{c.label}</td>
+              <td className="p-2 text-sm font-semibold" style={{ borderBottom: "1px solid var(--border)" }}>
+                {c.label}
+                {c.colour ? ` · ${c.colour}` : ""}
+                {c.remarks ? ` · ${c.remarks}` : ""}
+              </td>
+              <td className="p-2" style={{ borderBottom: "1px solid var(--border)" }}>
+                <input
+                  className="field text-center font-mono"
+                  type="number"
+                  step="0.1"
+                  placeholder="—"
+                  value={prices[c.id].ppc}
+                  onChange={(e) =>
+                    setPrices((prev) => ({
+                      ...prev,
+                      [c.id]: { ...prev[c.id], ppc: e.target.value },
+                    }))
+                  }
+                />
+              </td>
               {(["A", "B", "C", "D"] as const).map((t) => (
                 <td key={t} className="p-2 border-b border-stone-100">
                   <input
                     className="field text-center font-mono"
                     type="number"
+                    placeholder="—"
                     value={prices[c.id][t]}
                     onChange={(e) =>
                       setPrices((prev) => ({
@@ -586,11 +688,120 @@ function EditPricesModal({
         </tbody>
       </table>
       <div className="text-xs themed-muted mt-2.5">
-        Changes apply to new bills only — existing bills keep the price charged at the time.
+        Prices are optional. Leave blank and set them later or enter a price on the bill. Cartons use pairs ÷ pairs/carton (3.8 means the 4th carton is not full).
       </div>
       <div className="flex justify-end gap-2 mt-4">
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={submit} disabled={pending}>Save prices</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ImportExcelModal({
+  warehouses,
+  onClose,
+}: {
+  warehouses: Warehouse[];
+  onClose: () => void;
+}) {
+  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id);
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof parseInventoryWorkbook>>>([]);
+  const [fileName, setFileName] = useState("");
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+  const { toast } = useToast();
+
+  async function onFile(file: File | undefined) {
+    setError("");
+    setRows([]);
+    setFileName(file?.name || "");
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const parsed = parseInventoryWorkbook(buf);
+    if (parsed.length === 0) {
+      setError("Could not find Company, Article, Size and Stocks columns in the first sheet.");
+      return;
+    }
+    setRows(parsed);
+  }
+
+  function submit() {
+    if (!warehouseId || rows.length === 0) return;
+    startTransition(async () => {
+      const result = await importInventoryRows(warehouseId, rows);
+      toast(`Imported ${result.created} new rows, updated ${result.updated}.`);
+      onClose();
+    });
+  }
+
+  return (
+    <ModalShell title="Import Excel stock" onClose={onClose} wide>
+      <p className="text-sm themed-muted mb-3">
+        Use a godown sheet with Company, Article, Size, Stocks, Colour, Remarks, and pairs per carton.
+        Size like 6*9 is stored as 6-9. Prices are not required.
+      </p>
+      <Label>Warehouse for this sheet</Label>
+      <select
+        className="field mb-3"
+        value={warehouseId}
+        onChange={(e) => setWarehouseId(Number(e.target.value))}
+      >
+        {warehouses.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+      <Label>Excel file</Label>
+      <input
+        className="field"
+        type="file"
+        accept=".xlsx,.xls"
+        onChange={(e) => onFile(e.target.files?.[0])}
+      />
+      {error && <div className="text-sm text-red-500 mt-2">{error}</div>}
+      {rows.length > 0 && (
+        <div className="mt-3 text-sm themed-title">
+          {fileName}: {rows.length} row{rows.length === 1 ? "" : "s"} ready
+          <div className="max-h-[220px] overflow-auto mt-2 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="themed-muted uppercase">
+                  <th className="p-2">Company</th>
+                  <th className="p-2">Article</th>
+                  <th className="p-2">Range</th>
+                  <th className="p-2">Colour</th>
+                  <th className="p-2">Remarks</th>
+                  <th className="p-2">Pairs</th>
+                  <th className="p-2">PPC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, 40).map((r, i) => (
+                  <tr key={i}>
+                    <td className="p-2">{r.brand}</td>
+                    <td className="p-2">{r.name}</td>
+                    <td className="p-2">{r.size}</td>
+                    <td className="p-2">{r.colour || "—"}</td>
+                    <td className="p-2">{r.remarks || "—"}</td>
+                    <td className="p-2 font-mono">{r.qty}</td>
+                    <td className="p-2 font-mono">{r.pairsPerCarton || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > 40 && (
+            <div className="text-xs themed-muted mt-1">Showing first 40 of {rows.length}.</div>
+          )}
+        </div>
+      )}
+      <div className="flex justify-end gap-2 mt-4">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={pending || rows.length === 0}>
+          Import into stock
+        </button>
       </div>
     </ModalShell>
   );

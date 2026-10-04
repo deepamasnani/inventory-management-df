@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { Search, Plus, Trash2, Printer, ShoppingCart } from "lucide-react";
+import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, inr } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, inr, skuSearchHaystack } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
@@ -41,6 +41,7 @@ export default function BillingTab({
   const [productOpen, setProductOpen] = useState(false);
   const [activeSku, setActiveSku] = useState<SkuWithDetails | null>(null);
   const [catQty, setCatQty] = useState<Record<number, string>>({});
+  const [catPrice, setCatPrice] = useState<Record<number, string>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cash, setCash] = useState("");
   const [online, setOnline] = useState("");
@@ -59,7 +60,7 @@ export default function BillingTab({
   }, [customerId]);
 
   const filteredSkus = productQuery.length > 0
-    ? skus.filter((s) => (s.brand + " " + s.name).toLowerCase().includes(productQuery.toLowerCase()))
+    ? skus.filter((s) => skuSearchHaystack(s).includes(productQuery.toLowerCase()))
     : skus;
 
   function cartQtyFor(skuCatId: number) {
@@ -73,14 +74,15 @@ export default function BillingTab({
     const alreadyIn = cartQtyFor(cat.id);
     const finalQty = Math.min(qty, Math.max(stockAvail - alreadyIn, 0));
     if (finalQty <= 0) return;
-    const price = cat.prices[billType as keyof typeof cat.prices];
+    const listed = cat.prices[billType as keyof typeof cat.prices] || 0;
+    const price = Number(catPrice[cat.id] ?? (listed ? String(listed) : "")) || 0;
     setCart((prev) => [
       ...prev,
       {
         skuCategoryId: cat.id,
         skuName: sku.name,
         brand: sku.brand,
-        categoryLabel: cat.label,
+        categoryLabel: [cat.label, cat.colour, cat.remarks].filter(Boolean).join(" · "),
         qty: finalQty,
         price,
         subtotal: finalQty * price,
@@ -192,7 +194,7 @@ export default function BillingTab({
               <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 themed-muted pointer-events-none" />
               <input
                 className="field field-search"
-                placeholder="Type SKU or brand name…"
+                placeholder="SKU, brand, colour, remarks…"
                 value={productQuery}
                 onFocus={() => setProductOpen(true)}
                 onChange={(e) => { setProductQuery(e.target.value); setProductOpen(true); }}
@@ -211,6 +213,15 @@ export default function BillingTab({
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <b>{s.name}</b> <span className="themed-muted">· {s.brand}</span>
+                    {s.categories.some((c) => c.remarks || c.colour) && (
+                      <div className="text-[11px] themed-muted truncate">
+                        {s.categories
+                          .map((c) => [c.colour, c.remarks].filter(Boolean).join(" "))
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .join(" · ")}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -226,16 +237,27 @@ export default function BillingTab({
               <div className="grid grid-cols-2 gap-2">
                 {activeSku.categories.map((c) => {
                   const avail = (activeSku.stock[effectiveWhId]?.[c.id] ?? 0) - cartQtyFor(c.id);
+                  const listed = c.prices[billType as keyof typeof c.prices] || 0;
                   return (
                     <div
                       key={c.id}
                       className={`rounded-md p-2 ${avail <= 0 ? "opacity-50" : ""}`}
                       style={{ border: "1px solid var(--border-strong)" }}
                     >
-                      <div className="text-xs font-semibold themed-title">{c.label}</div>
+                      <div className="text-xs font-semibold themed-title">{c.label}{c.colour ? ` · ${c.colour}` : ""}</div>
+                      {c.remarks ? <div className="text-[11px] themed-muted">{c.remarks}</div> : null}
                       <div className="text-xs themed-muted font-mono">
-                        {inr(c.prices[billType as keyof typeof c.prices])} · {avail} in stock
+                        {avail} pairs
+                        {c.pairsPerCarton > 0 ? ` · ${formatCartons(avail, c.pairsPerCarton)} ctn` : ""}
                       </div>
+                      <input
+                        className="field text-sm p-1 mt-1.5 font-mono"
+                        type="number"
+                        placeholder={listed ? `Price ${listed}` : "Price (optional)"}
+                        disabled={avail <= 0}
+                        value={catPrice[c.id] ?? (listed ? String(listed) : "")}
+                        onChange={(e) => setCatPrice((p) => ({ ...p, [c.id]: e.target.value }))}
+                      />
                       <div className="flex gap-1.5 mt-1.5">
                         <input
                           className="field text-sm p-1"
@@ -288,8 +310,22 @@ export default function BillingTab({
                       {it.brand} {it.skuName}{" "}
                       <span className="themed-muted font-normal">· {it.categoryLabel}</span>
                     </div>
-                    <div className="text-[11.5px] themed-muted font-mono">
-                      {it.qty} × {inr(it.price)}
+                    <div className="text-[11.5px] themed-muted font-mono flex items-center gap-1">
+                      {it.qty} ×
+                      <input
+                        className="field w-20 p-0.5 text-center font-mono"
+                        type="number"
+                        value={it.price || ""}
+                        placeholder="₹"
+                        onChange={(e) => {
+                          const price = Number(e.target.value) || 0;
+                          setCart((prev) =>
+                            prev.map((row, j) =>
+                              j === i ? { ...row, price, subtotal: row.qty * price } : row
+                            )
+                          );
+                        }}
+                      />
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

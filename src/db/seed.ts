@@ -84,7 +84,10 @@ async function main() {
       price_a INTEGER NOT NULL DEFAULT 0,
       price_b INTEGER NOT NULL DEFAULT 0,
       price_c INTEGER NOT NULL DEFAULT 0,
-      price_d INTEGER NOT NULL DEFAULT 0
+      price_d INTEGER NOT NULL DEFAULT 0,
+      colour TEXT NOT NULL DEFAULT '',
+      remarks TEXT NOT NULL DEFAULT '',
+      pairs_per_carton DOUBLE PRECISION NOT NULL DEFAULT 0
     )
   `;
   await client`

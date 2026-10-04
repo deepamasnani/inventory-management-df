@@ -22,7 +22,7 @@ export function ModalShell({
     >
       <div
         className={`rounded-[24px] p-6 max-h-[85vh] overflow-y-auto animate-scale-in themed-card ${
-          wide ? "w-[640px]" : "w-[440px]"
+          wide ? "w-[720px] max-w-[calc(100vw-2rem)]" : "w-[440px]"
         }`}
         onClick={(e) => e.stopPropagation()}
       >

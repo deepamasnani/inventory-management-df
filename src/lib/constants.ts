@@ -5,10 +5,47 @@ export const CUSTOMER_TYPES = [
   { id: "D", label: "Type D · Institutional" },
 ] as const;
 
-export const CAT_LABELS = ["UK 6-7", "UK 8-9", "UK 10-11", "UK 12-13"] as const;
+export const CAT_LABELS = ["6-9", "5-8", "4-7", "2-5"] as const;
 
 export function inr(n: number): string {
   return "₹" + Math.round(n).toLocaleString("en-IN");
+}
+
+export function formatSizeRange(raw: string): string {
+  const t = String(raw ?? "").trim();
+  if (!t) return "";
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)$/i);
+  if (m) {
+    const a = String(Number(m[1]));
+    const b = String(Number(m[2]));
+    return `${a}-${b}`;
+  }
+  return t.replace(/\*/g, "-");
+}
+
+export function cartonCount(pairs: number, perCarton: number): number | null {
+  if (!perCarton || perCarton <= 0) return null;
+  return Math.round((pairs / perCarton) * 10) / 10;
+}
+
+export function formatCartons(pairs: number, perCarton: number): string {
+  const n = cartonCount(pairs, perCarton);
+  if (n === null) return "—";
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+export function skuSearchHaystack(sku: {
+  brand: string;
+  name: string;
+  categories: { label: string; colour: string; remarks: string }[];
+}): string {
+  return [
+    sku.brand,
+    sku.name,
+    ...sku.categories.flatMap((c) => [c.label, c.colour, c.remarks]),
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 export type CustomerType = "A" | "B" | "C" | "D";

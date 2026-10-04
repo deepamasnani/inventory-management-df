@@ -14,6 +14,7 @@ import {
 import { eq, and, sql, lt, desc, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
+import type { InventoryImportRow } from "./parse-inventory-xlsx";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -57,6 +58,9 @@ export type SkuWithDetails = {
   categories: {
     id: number;
     label: string;
+    colour: string;
+    remarks: string;
+    pairsPerCarton: number;
     prices: { A: number; B: number; C: number; D: number };
   }[];
   stock: Record<number, Record<number, number>>; // warehouseId -> catId -> qty
@@ -88,6 +92,9 @@ export async function getSkusWithStock(): Promise<SkuWithDetails[]> {
       categories: cats.map((c) => ({
         id: c.id,
         label: c.label,
+        colour: c.colour || "",
+        remarks: c.remarks || "",
+        pairsPerCarton: c.pairsPerCarton || 0,
         prices: { A: c.priceA, B: c.priceB, C: c.priceC, D: c.priceD },
       })),
       stock: stockMap,
@@ -98,7 +105,16 @@ export async function getSkusWithStock(): Promise<SkuWithDetails[]> {
 export async function addSku(data: {
   name: string;
   brand: string;
-  categories: { label: string; priceA: number; priceB: number; priceC: number; priceD: number }[];
+  categories: {
+    label: string;
+    colour?: string;
+    remarks?: string;
+    pairsPerCarton?: number;
+    priceA: number;
+    priceB: number;
+    priceC: number;
+    priceD: number;
+  }[];
   initialStock: Record<number, number[]>; // warehouseId -> qty per category index
 }) {
   await requireAdmin();
@@ -109,7 +125,17 @@ export async function addSku(data: {
     const cat = data.categories[i];
     const [inserted] = await db
       .insert(skuCategories)
-      .values({ skuId: sku.id, label: cat.label, priceA: cat.priceA, priceB: cat.priceB, priceC: cat.priceC, priceD: cat.priceD })
+      .values({
+        skuId: sku.id,
+        label: cat.label,
+        colour: cat.colour?.trim() || "",
+        remarks: cat.remarks?.trim() || "",
+        pairsPerCarton: cat.pairsPerCarton || 0,
+        priceA: cat.priceA,
+        priceB: cat.priceB,
+        priceC: cat.priceC,
+        priceD: cat.priceD,
+      })
       .returning();
 
     const stockRows = whList.map((w) => ({
@@ -124,15 +150,123 @@ export async function addSku(data: {
   revalidatePath("/");
 }
 
+function normKey(s: string) {
+  return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export async function importInventoryRows(
+  warehouseId: number,
+  rows: InventoryImportRow[]
+) {
+  await requireAdmin();
+  const [wh] = await db.select().from(warehouses).where(eq(warehouses.id, warehouseId)).limit(1);
+  if (!wh) throw new Error("Warehouse not found.");
+
+  const allWh = await db.select().from(warehouses);
+  const existingSkus = await db.select().from(skus);
+  const existingCats = await db.select().from(skuCategories);
+  const existingStock = await db.select().from(stock);
+
+  let created = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    const brand = row.brand.trim().replace(/\s+/g, " ");
+    const name = row.name.trim().replace(/\s+/g, " ");
+    if (!brand || !name) continue;
+    const label = row.size.trim();
+    const colour = row.colour.trim();
+    const remarks = row.remarks.trim();
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    const ppc = Number(row.pairsPerCarton) || 0;
+
+    let sku = existingSkus.find(
+      (s) => normKey(s.brand) === normKey(brand) && normKey(s.name) === normKey(name)
+    );
+    if (!sku) {
+      const [inserted] = await db.insert(skus).values({ brand, name }).returning();
+      sku = inserted;
+      existingSkus.push(inserted);
+    }
+
+    let cat = existingCats.find(
+      (c) =>
+        c.skuId === sku!.id &&
+        normKey(c.label) === normKey(label) &&
+        normKey(c.colour || "") === normKey(colour) &&
+        normKey(c.remarks || "") === normKey(remarks)
+    );
+    if (!cat) {
+      const [inserted] = await db
+        .insert(skuCategories)
+        .values({
+          skuId: sku.id,
+          label,
+          colour,
+          remarks,
+          pairsPerCarton: ppc,
+          priceA: 0,
+          priceB: 0,
+          priceC: 0,
+          priceD: 0,
+        })
+        .returning();
+      cat = inserted;
+      existingCats.push(inserted);
+      const stockRows = allWh.map((w) => ({
+        skuCategoryId: inserted.id,
+        warehouseId: w.id,
+        qty: w.id === warehouseId ? qty : 0,
+      }));
+      if (stockRows.length > 0) {
+        const insertedStock = await db.insert(stock).values(stockRows).returning();
+        existingStock.push(...insertedStock);
+      }
+      created += 1;
+    } else {
+      await db
+        .update(skuCategories)
+        .set({ pairsPerCarton: ppc || cat.pairsPerCarton || 0 })
+        .where(eq(skuCategories.id, cat.id));
+      const st = existingStock.find(
+        (s) => s.skuCategoryId === cat!.id && s.warehouseId === warehouseId
+      );
+      if (st) {
+        await db
+          .update(stock)
+          .set({ qty })
+          .where(and(eq(stock.skuCategoryId, cat.id), eq(stock.warehouseId, warehouseId)));
+        st.qty = qty;
+      } else {
+        const [row] = await db
+          .insert(stock)
+          .values({ skuCategoryId: cat.id, warehouseId, qty })
+          .returning();
+        existingStock.push(row);
+      }
+      updated += 1;
+    }
+  }
+
+  revalidatePath("/");
+  return { created, updated };
+}
+
 export async function updateSkuPrices(
-  prices: Record<number, { A: number; B: number; C: number; D: number }>
+  prices: Record<number, { A: number; B: number; C: number; D: number; pairsPerCarton?: number }>
 ) {
   await requireAdmin();
   for (const [catIdStr, p] of Object.entries(prices)) {
     const catId = Number(catIdStr);
     await db
       .update(skuCategories)
-      .set({ priceA: p.A, priceB: p.B, priceC: p.C, priceD: p.D })
+      .set({
+        priceA: p.A,
+        priceB: p.B,
+        priceC: p.C,
+        priceD: p.D,
+        ...(p.pairsPerCarton != null ? { pairsPerCarton: p.pairsPerCarton } : {}),
+      })
       .where(eq(skuCategories.id, catId));
   }
   revalidatePath("/");
