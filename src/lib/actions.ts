@@ -650,6 +650,7 @@ export async function createBill(input: BillInput) {
         paidOnline: input.paidOnline,
         balance: input.balance,
         status: "active",
+        dispatchStatus: "pending",
       })
       .returning();
 
@@ -786,6 +787,16 @@ export async function voidBill(billId: number) {
 
     await tx.update(bills).set({ status: "voided" }).where(eq(bills.id, billId));
   });
+  revalidatePath("/");
+}
+
+export async function dispatchBill(billId: number) {
+  await requireAdmin();
+  const [bill] = await db.select().from(bills).where(eq(bills.id, billId)).limit(1);
+  if (!bill) throw new Error("Bill not found.");
+  if (bill.status === "voided") throw new Error("Cannot dispatch a voided bill.");
+  if (bill.dispatchStatus === "dispatched") throw new Error("This bill is already dispatched.");
+  await db.update(bills).set({ dispatchStatus: "dispatched" }).where(eq(bills.id, billId));
   revalidatePath("/");
 }
 

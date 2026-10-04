@@ -66,6 +66,7 @@ export async function ensureAdminTable() {
   await db.execute(sql`ALTER TABLE sku_categories ADD COLUMN IF NOT EXISTS pairs_per_carton DOUBLE PRECISION NOT NULL DEFAULT 0`);
   await db.execute(sql`ALTER TABLE bill_items ALTER COLUMN sku_category_id DROP NOT NULL`);
   await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`);
+  await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending'`);
   await db.execute(sql`ALTER TABLE bills ALTER COLUMN warehouse_id DROP NOT NULL`);
   await db.execute(sql`ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'godown'`);
   await db.execute(sql`UPDATE warehouses SET kind = 'godown' WHERE kind IS NULL OR kind = ''`);

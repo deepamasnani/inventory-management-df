@@ -8,7 +8,7 @@ import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Tag } from "./ui/Tag";
 import { CUSTOMER_TYPES, inr } from "@/lib/constants";
-import { getBillItems, voidBill } from "@/lib/actions";
+import { dispatchBill, getBillItems, voidBill } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
 type Bill = {
@@ -26,6 +26,7 @@ type Bill = {
   paidOnline: number;
   balance: number;
   status?: string | null;
+  dispatchStatus?: string | null;
 };
 
 type BillItem = {
@@ -76,6 +77,18 @@ export default function BillsTab({
       const items = await getBillItems(billId);
       setOpenItems(items);
       setOpenId(billId);
+    });
+  }
+
+  function handleDispatch(bill: Bill) {
+    startTransition(async () => {
+      try {
+        await dispatchBill(bill.id);
+        toast(`Dispatched ${bill.invoiceNo}`, "info");
+        router.refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not dispatch this bill.", "error");
+      }
     });
   }
 
@@ -137,7 +150,11 @@ export default function BillsTab({
                     {b.invoiceNo}
                     {b.status === "voided" ? (
                       <span className="ml-2"><Tag tone="amber">Voided</Tag></span>
-                    ) : null}
+                    ) : b.dispatchStatus === "dispatched" ? (
+                      <span className="ml-2"><Tag tone="green">Dispatched</Tag></span>
+                    ) : (
+                      <span className="ml-2"><Tag tone="amber">Pending dispatch</Tag></span>
+                    )}
                   </td>
                   <td className="themed-muted">{b.date}</td>
                   <td className="themed-muted">{b.customerName}</td>
@@ -146,8 +163,13 @@ export default function BillsTab({
                   <td className={`font-semibold ${(b.balance + b.claim) > 0 ? "text-[#E07A3A]" : (b.balance + b.claim) < 0 ? "text-[#3DC97A]" : "themed-muted"}`}>
                     {(b.balance + b.claim) === 0 ? "—" : ((b.balance + b.claim) > 0 ? "+" : "") + inr(b.balance + b.claim)}
                   </td>
-                  <td>
+                  <td className="whitespace-nowrap">
                     <button className="btn text-xs" onClick={() => handleOpen(b.id)}>View</button>
+                    {b.status !== "voided" && b.dispatchStatus !== "dispatched" ? (
+                      <button className="btn btn-primary text-xs ml-1.5" disabled={pending} onClick={() => handleDispatch(b)}>
+                        Dispatch
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -163,6 +185,16 @@ export default function BillsTab({
             <DetailRow label="Warehouse" value={openBill.warehouseName} />
             <DetailRow label="Customer" value={openBill.customerName} />
             <DetailRow label="Billing type" value={CUSTOMER_TYPES.find((t) => t.id === openBill.customerType)?.label || openBill.customerType} />
+            <DetailRow
+              label="Dispatch"
+              value={
+                openBill.status === "voided"
+                  ? "Voided"
+                  : openBill.dispatchStatus === "dispatched"
+                    ? "Dispatched"
+                    : "Pending dispatch"
+              }
+            />
           </div>
 
           <Label>Items</Label>
@@ -202,6 +234,11 @@ export default function BillsTab({
 
           <div className="flex justify-end gap-2 mt-4">
             <button className="btn" onClick={() => setOpenId(null)}>Close</button>
+            {openBill.status !== "voided" && openBill.dispatchStatus !== "dispatched" && (
+              <button className="btn btn-primary" disabled={pending} onClick={() => handleDispatch(openBill)}>
+                Dispatch
+              </button>
+            )}
             {openBill.status !== "voided" && (
               <button className="btn" style={{ color: "#E05A5A" }} onClick={() => setVoidTarget(openBill)}>
                 Void bill

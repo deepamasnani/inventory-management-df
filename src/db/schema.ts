@@ -59,6 +59,7 @@ export const bills = pgTable("bills", {
   paidOnline: integer("paid_online").notNull().default(0),
   balance: integer("balance").notNull().default(0),
   status: text("status").notNull().default("active"),
+  dispatchStatus: text("dispatch_status").notNull().default("pending"),
 });
 
 export const billItems = pgTable("bill_items", {

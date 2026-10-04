@@ -31,6 +31,7 @@ type Props = {
     invoiceNo: string;
     customerName: string;
     status?: string | null;
+    dispatchStatus?: string | null;
   }[];
   warehouseStats: { id: number; name: string; kind?: string; skuCount: number; pairs: number }[];
   onNavigate?: (tab: string) => void;
@@ -196,8 +197,10 @@ export default function Overview({
                     <td>
                       {b.status === "voided" ? (
                         <Tag tone="amber">Voided</Tag>
+                      ) : b.dispatchStatus === "dispatched" ? (
+                        <Tag tone="green">Dispatched</Tag>
                       ) : (
-                        <Tag tone="teal">Saved</Tag>
+                        <Tag tone="amber">Pending dispatch</Tag>
                       )}
                     </td>
                   </tr>
