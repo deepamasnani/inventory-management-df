@@ -48,7 +48,7 @@ export const bills = pgTable("bills", {
   customerId: integer("customer_id").notNull().references(() => customers.id),
   customerName: text("customer_name").notNull(),
   customerType: text("customer_type").notNull(),
-  warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id),
+  warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
   warehouseName: text("warehouse_name").notNull(),
   subtotal: integer("subtotal").notNull().default(0),
   discount: integer("discount").notNull().default(0),

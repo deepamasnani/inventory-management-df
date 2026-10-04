@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Check, Trash2, LogOut } from "lucide-react";
 import { ModalShell } from "./ui/ModalShell";
 import { Label } from "./ui/Card";
@@ -36,6 +37,7 @@ export default function WarehouseModal({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     getAdminProfile().then((p) => {
@@ -69,10 +71,16 @@ export default function WarehouseModal({
 
   function confirmDelete() {
     if (!deleteTarget) return;
+    const target = deleteTarget;
     startTransition(async () => {
-      await deleteWarehouse(deleteTarget.id);
-      toast(`Warehouse "${deleteTarget.name}" deleted`, "info");
-      setDeleteTarget(null);
+      try {
+        await deleteWarehouse(target.id);
+        toast(`Warehouse "${target.name}" deleted`, "info");
+        setDeleteTarget(null);
+        router.refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not delete warehouse.", "error");
+      }
     });
   }
 
@@ -237,6 +245,7 @@ export default function WarehouseModal({
                     className="btn btn-danger px-2.5 py-1"
                     onClick={() => setDeleteTarget(w)}
                     disabled={warehouses.length <= 1 || pending}
+                    title={warehouses.length <= 1 ? "Keep at least one warehouse" : `Delete ${w.name}`}
                   >
                     <Trash2 size={13} />
                   </button>

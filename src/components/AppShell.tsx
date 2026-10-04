@@ -38,7 +38,7 @@ type Bill = {
   customerId: number;
   customerName: string;
   customerType: string;
-  warehouseId: number;
+  warehouseId: number | null;
   warehouseName: string;
   subtotal: number;
   discount: number;

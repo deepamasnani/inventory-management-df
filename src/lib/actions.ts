@@ -46,7 +46,18 @@ export async function renameWarehouse(id: number, name: string) {
 
 export async function deleteWarehouse(id: number) {
   await requireAdmin();
-  await db.delete(warehouses).where(eq(warehouses.id, id));
+  const all = await db.select({ id: warehouses.id }).from(warehouses);
+  if (all.length <= 1) {
+    throw new Error("Keep at least one warehouse.");
+  }
+  await db.transaction(async (tx) => {
+    await tx
+      .update(bills)
+      .set({ warehouseId: null })
+      .where(eq(bills.warehouseId, id));
+    await tx.delete(stock).where(eq(stock.warehouseId, id));
+    await tx.delete(warehouses).where(eq(warehouses.id, id));
+  });
   revalidatePath("/");
 }
 
@@ -689,7 +700,7 @@ export async function voidBill(billId: number) {
 
     const items = await tx.select().from(billItems).where(eq(billItems.billId, billId));
     for (const item of items) {
-      if (!item.skuCategoryId) continue;
+      if (!item.skuCategoryId || !bill.warehouseId) continue;
       const [row] = await tx
         .select()
         .from(stock)
