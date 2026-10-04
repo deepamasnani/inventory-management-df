@@ -25,6 +25,7 @@ import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
 import BillsTab from "./BillsTab";
 import CustomersTab from "./CustomersTab";
+import NotificationsTab from "./NotificationsTab";
 import PrintModal from "./PrintModal";
 import WarehouseModal from "./WarehouseModal";
 import { ToastProvider, useToast } from "./ui/Toast";
@@ -77,6 +78,7 @@ const navItems = [
   { id: "billing", label: "New Bill", icon: ShoppingCart, shortcut: "4" },
   { id: "bills", label: "Bills", icon: FileText, shortcut: "5" },
   { id: "customers", label: "Customers", icon: Users, shortcut: "6" },
+  { id: "notifications", label: "Notifications", icon: Bell, shortcut: "7" },
 ] as const;
 
 function getGreeting() {
@@ -166,7 +168,7 @@ function AppShellInner({
       )
         return;
 
-      if (e.altKey && e.key >= "1" && e.key <= "6") {
+      if (e.altKey && e.key >= "1" && e.key <= "7") {
         e.preventDefault();
         const idx = parseInt(e.key) - 1;
         if (navItems[idx]) {
@@ -287,7 +289,13 @@ function AppShellInner({
                 >
                   <Icon size={17} />
                   <span className="flex-1 text-[13px]">{item.label}</span>
-                  <span className="kbd">{item.shortcut}</span>
+                  {item.id === "notifications" && notificationCount > 0 ? (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF6B6B] text-white text-[10px] font-bold flex items-center justify-center">
+                      {notificationCount > 99 ? "99+" : notificationCount}
+                    </span>
+                  ) : (
+                    <span className="kbd">{item.shortcut}</span>
+                  )}
                 </button>
               );
             })}
@@ -560,6 +568,7 @@ function AppShellInner({
                                 style={{ borderBottom: "1px solid var(--border)" }}
                                 onClick={() => {
                                   setShowNotifications(false);
+                                  setOpenCustomerId(c.id);
                                   go("customers");
                                 }}
                               >
@@ -587,31 +596,18 @@ function AppShellInner({
 
                       {notificationCount > 0 && (
                         <div
-                          className="px-4 py-2.5 flex gap-2"
+                          className="px-4 py-2.5"
                           style={{ borderTop: "1px solid var(--border)" }}
                         >
-                          {stats.lowStock.length > 0 && (
-                            <button
-                              className="btn text-xs flex-1"
-                              onClick={() => {
-                                setShowNotifications(false);
-                                go("inventory");
-                              }}
-                            >
-                              View inventory
-                            </button>
-                          )}
-                          {creditCustomers.length > 0 && (
-                            <button
-                              className="btn text-xs flex-1"
-                              onClick={() => {
-                                setShowNotifications(false);
-                                go("customers");
-                              }}
-                            >
-                              View customers
-                            </button>
-                          )}
+                          <button
+                            className="btn btn-primary text-xs w-full"
+                            onClick={() => {
+                              setShowNotifications(false);
+                              go("notifications");
+                            }}
+                          >
+                            See all notifications
+                          </button>
                         </div>
                       )}
                     </div>
@@ -650,6 +646,7 @@ function AppShellInner({
                   {tab === "billing" && "Create a new bill for a customer"}
                   {tab === "bills" && "View and reprint past invoices"}
                   {tab === "customers" && "Customer accounts and credit ledger"}
+                  {tab === "notifications" && "All low-stock and credit alerts"}
                 </p>
               </div>
               {tab === "overview" && (
@@ -714,6 +711,17 @@ function AppShellInner({
                 customers={customers}
                 initialQuery={customersQuery}
                 initialOpenId={openCustomerId}
+              />
+            )}
+            {tab === "notifications" && (
+              <NotificationsTab
+                lowStock={stats.lowStock}
+                creditCustomers={creditCustomers}
+                onLowStockClick={openLowStockItem}
+                onCustomerClick={(id) => {
+                  setOpenCustomerId(id);
+                  go("customers");
+                }}
               />
             )}
           </div>

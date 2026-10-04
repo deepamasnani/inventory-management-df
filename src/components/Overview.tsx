@@ -238,7 +238,7 @@ export default function Overview({
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {lowStock.map((r, i) => (
+              {lowStock.slice(0, 8).map((r, i) => (
                 <button
                   key={i}
                   className="flex justify-between items-center text-left text-[13px] p-3 rounded-2xl border transition-all cursor-pointer hover:opacity-90"
@@ -273,6 +273,15 @@ export default function Overview({
                   </span>
                 </button>
               ))}
+              {lowStock.length > 8 && (
+                <button
+                  className="text-xs bg-transparent border-none font-semibold mt-2 text-left"
+                  style={{ color: "var(--accent)" }}
+                  onClick={() => onNavigate?.("notifications")}
+                >
+                  See all {lowStock.length} low-stock alerts
+                </button>
+              )}
             </div>
           )}
         </Card>

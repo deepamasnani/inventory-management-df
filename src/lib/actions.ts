@@ -302,6 +302,43 @@ async function unlinkThenDeleteSkus(
   await tx.delete(skus).where(inArray(skus.id, ids));
 }
 
+export async function removeSkuFromWarehouse(skuId: number, warehouseId: number) {
+  await requireAdmin();
+  const cats = await db
+    .select({ id: skuCategories.id })
+    .from(skuCategories)
+    .where(eq(skuCategories.skuId, skuId));
+  const catIds = cats.map((c) => c.id);
+  if (catIds.length > 0) {
+    await db
+      .delete(stock)
+      .where(and(inArray(stock.skuCategoryId, catIds), eq(stock.warehouseId, warehouseId)));
+  }
+  revalidatePath("/");
+}
+
+export async function removeBrandFromWarehouse(brand: string, warehouseId: number) {
+  await requireAdmin();
+  const folder = brand.trim() || "Unbranded";
+  const allSkus = await db.select().from(skus);
+  const ids = allSkus
+    .filter((s) => (s.brand.trim() || "Unbranded") === folder)
+    .map((s) => s.id);
+  if (ids.length === 0) return { removed: 0 };
+  const cats = await db
+    .select({ id: skuCategories.id })
+    .from(skuCategories)
+    .where(inArray(skuCategories.skuId, ids));
+  const catIds = cats.map((c) => c.id);
+  if (catIds.length > 0) {
+    await db
+      .delete(stock)
+      .where(and(inArray(stock.skuCategoryId, catIds), eq(stock.warehouseId, warehouseId)));
+  }
+  revalidatePath("/");
+  return { removed: ids.length };
+}
+
 export async function deleteSku(skuId: number) {
   await requireAdmin();
   await db.transaction(async (tx) => {
@@ -850,7 +887,7 @@ export async function getDashboardStats() {
     inventoryValue,
     outstandingCredit,
     revenueCollected,
-    lowStock: lowStock.slice(0, 20),
+    lowStock,
     recentBills,
     warehouseStats,
   };

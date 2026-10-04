@@ -6,7 +6,7 @@ import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { CUSTOMER_TYPES, formatCartons, formatSizeRange, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
-import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
+import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, removeSkuFromWarehouse, removeBrandFromWarehouse, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
 import { useToast } from "./ui/Toast";
@@ -202,8 +202,13 @@ export default function InventoryTab({
     if (!deleteSkuTarget) return;
     const target = deleteSkuTarget;
     startTransition(async () => {
-      await deleteSku(target.id);
-      toast(`Deleted article ${target.brand} ${target.name}`, "info");
+      if (mode === "shop") {
+        await removeSkuFromWarehouse(target.id, effectiveWhId);
+        toast(`Removed ${target.brand} ${target.name} from the shop`, "info");
+      } else {
+        await deleteSku(target.id);
+        toast(`Deleted article ${target.brand} ${target.name}`, "info");
+      }
       setDeleteSkuTarget(null);
     });
   }
@@ -212,8 +217,13 @@ export default function InventoryTab({
     if (!deleteBrand) return;
     const name = deleteBrand;
     startTransition(async () => {
-      const result = await deleteBrandFolder(name);
-      toast(`Deleted ${name} (${result.deleted} article${result.deleted === 1 ? "" : "s"})`, "info");
+      if (mode === "shop") {
+        const result = await removeBrandFromWarehouse(name, effectiveWhId);
+        toast(`Removed ${name} from the shop (${result.removed} article${result.removed === 1 ? "" : "s"})`, "info");
+      } else {
+        const result = await deleteBrandFolder(name);
+        toast(`Deleted ${name} (${result.deleted} article${result.deleted === 1 ? "" : "s"})`, "info");
+      }
       setDeleteBrand(null);
     });
   }
@@ -431,7 +441,7 @@ export default function InventoryTab({
                             style={{ color: "#E05A5A" }}
                             onClick={() => setDeleteSkuTarget(s)}
                           >
-                            <Trash2 size={12} className="inline -mt-0.5" /> Delete
+                            <Trash2 size={12} className="inline -mt-0.5" /> {mode === "shop" ? "Remove" : "Delete"}
                           </button>
                         </div>
                       </div>
@@ -479,9 +489,19 @@ export default function InventoryTab({
       {deleteSkuTarget && (
         <ConfirmDialog
           danger
-          title={`Delete ${deleteSkuTarget.brand} ${deleteSkuTarget.name}?`}
-          message="This article is removed from every warehouse. Past bills keep their line items."
-          confirmLabel={pending ? "Deleting…" : "Delete article"}
+          title={
+            mode === "shop"
+              ? `Remove ${deleteSkuTarget.brand} ${deleteSkuTarget.name} from the shop?`
+              : `Delete ${deleteSkuTarget.brand} ${deleteSkuTarget.name}?`
+          }
+          message={
+            mode === "shop"
+              ? "This only clears shop stock. The article stays in godowns."
+              : "This article is removed from every warehouse and the shop. Past bills keep their line items."
+          }
+          confirmLabel={
+            pending ? (mode === "shop" ? "Removing…" : "Deleting…") : mode === "shop" ? "Remove from shop" : "Delete article"
+          }
           onConfirm={confirmDeleteSku}
           onCancel={() => setDeleteSkuTarget(null)}
         />
@@ -489,11 +509,25 @@ export default function InventoryTab({
       {deleteBrand && (
         <ConfirmDialog
           danger
-          title={`Delete ${deleteBrand}?`}
-          message={`This removes the whole folder and all ${
-            skus.filter((s) => (s.brand.trim() || "Unbranded") === deleteBrand).length
-          } articles inside it from every warehouse. Past bills keep their line items.`}
-          confirmLabel={pending ? "Deleting…" : "Delete folder"}
+          title={mode === "shop" ? `Remove ${deleteBrand} from the shop?` : `Delete ${deleteBrand}?`}
+          message={
+            mode === "shop"
+              ? `This only clears shop stock for ${
+                  skus.filter((s) => (s.brand.trim() || "Unbranded") === deleteBrand).length
+                } article(s). Godown stock stays.`
+              : `This removes the whole folder and all ${
+                  skus.filter((s) => (s.brand.trim() || "Unbranded") === deleteBrand).length
+                } articles inside it from every warehouse and the shop. Past bills keep their line items.`
+          }
+          confirmLabel={
+            pending
+              ? mode === "shop"
+                ? "Removing…"
+                : "Deleting…"
+              : mode === "shop"
+                ? "Remove from shop"
+                : "Delete folder"
+          }
           onConfirm={confirmDeleteBrand}
           onCancel={() => setDeleteBrand(null)}
         />

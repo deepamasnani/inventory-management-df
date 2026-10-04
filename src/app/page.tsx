@@ -4,7 +4,7 @@ import AppShell from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
-const TABS = ["overview", "inventory", "shop", "billing", "bills", "customers"] as const;
+const TABS = ["overview", "inventory", "shop", "billing", "bills", "customers", "notifications"] as const;
 
 export default async function Home({
   searchParams,
