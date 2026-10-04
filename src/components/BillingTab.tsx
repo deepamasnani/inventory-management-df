@@ -4,11 +4,11 @@ import { useState, useEffect, useTransition } from "react";
 import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, formatCartons, inr, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
-type Warehouse = { id: number; name: string };
+type Warehouse = { id: number; name: string; kind?: string | null };
 type Customer = { id: number; name: string; type: string; creditBalance: number };
 
 type CartItem = {
@@ -165,8 +165,8 @@ export default function BillingTab({
               return (
                 <option key={w.id} value={w.id}>
                   {counts
-                    ? `${w.name} · ${warehouseCountLabel(counts.skuCount, counts.pairs)}`
-                    : w.name}
+                    ? `${isShopLocation(w) ? `${w.name} (shop)` : w.name} · ${warehouseCountLabel(counts.skuCount, counts.pairs)}`
+                    : isShopLocation(w) ? `${w.name} (shop)` : w.name}
                 </option>
               );
             })}

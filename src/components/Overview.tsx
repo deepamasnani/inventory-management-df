@@ -2,9 +2,6 @@
 
 import {
   Package,
-  IndianRupee,
-  CreditCard,
-  TrendingUp,
   AlertTriangle,
   ArrowRight,
   Receipt,
@@ -13,7 +10,7 @@ import {
 import { Card, StitchDivider } from "./ui/Card";
 import { StatCard } from "./ui/StatCard";
 import { Tag } from "./ui/Tag";
-import { inr, warehouseCountLabel } from "@/lib/constants";
+import { isShopLocation, LOW_STOCK_BELOW, warehouseCountLabel } from "@/lib/constants";
 
 type LowStockItem = {
   skuId: number;
@@ -28,22 +25,14 @@ type LowStockItem = {
 type Props = {
   totalSkus: number;
   totalPairs: number;
-  inventoryValue: number;
-  outstandingCredit: number;
-  revenueCollected: number;
   lowStock: LowStockItem[];
   recentBills: {
     id: number;
     invoiceNo: string;
     customerName: string;
-    total: number;
-    paidCash: number;
-    paidOnline: number;
-    balance: number;
-    claim: number;
     status?: string | null;
   }[];
-  warehouseStats: { id: number; name: string; skuCount: number; pairs: number }[];
+  warehouseStats: { id: number; name: string; kind?: string; skuCount: number; pairs: number }[];
   onNavigate?: (tab: string) => void;
   onWarehouseClick?: (warehouseId: number) => void;
   onLowStockClick?: (item: LowStockItem) => void;
@@ -52,9 +41,6 @@ type Props = {
 export default function Overview({
   totalSkus,
   totalPairs,
-  inventoryValue,
-  outstandingCredit,
-  revenueCollected,
   lowStock,
   recentBills,
   warehouseStats,
@@ -64,30 +50,23 @@ export default function Overview({
 }: Props) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-4 max-w-xl">
         <button className="text-left bg-transparent border-none p-0" onClick={() => onNavigate?.("inventory")}>
           <StatCard icon={Package} label="Total SKUs" value={totalSkus} />
         </button>
         <button className="text-left bg-transparent border-none p-0" onClick={() => onNavigate?.("inventory")}>
           <StatCard icon={Package} label="Pairs in stock" value={totalPairs.toLocaleString("en-IN")} tone="blue" />
         </button>
-        <button className="text-left bg-transparent border-none p-0" onClick={() => onNavigate?.("inventory")}>
-          <StatCard icon={IndianRupee} label="Inventory value" value={inr(inventoryValue)} tone="teal" />
-        </button>
-        <button className="text-left bg-transparent border-none p-0" onClick={() => onNavigate?.("customers")}>
-          <StatCard icon={CreditCard} label="Outstanding credit" value={inr(outstandingCredit)} tone="amber" />
-        </button>
-        <button className="text-left bg-transparent border-none p-0" onClick={() => onNavigate?.("bills")}>
-          <StatCard icon={TrendingUp} label="Revenue collected" value={inr(revenueCollected)} tone="teal" />
-        </button>
       </div>
 
-      {warehouseStats.length > 0 && (
+      {warehouseStats.filter((w) => !isShopLocation(w)).length > 0 && (
         <Card>
           <div className="font-bold text-[15px] themed-title mb-1">Stock by godown</div>
           <StitchDivider />
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-            {warehouseStats.map((w) => (
+            {warehouseStats
+              .filter((w) => !isShopLocation(w))
+              .map((w) => (
               <button
                 key={w.id}
                 type="button"
@@ -108,7 +87,35 @@ export default function Overview({
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {warehouseStats.some((w) => isShopLocation(w)) && (
+        <Card>
+          <div className="font-bold text-[15px] themed-title mb-1">Shop</div>
+          <StitchDivider />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+            {warehouseStats
+              .filter((w) => isShopLocation(w))
+              .map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  className="text-left rounded-2xl p-3.5 border transition-all hover:opacity-90"
+                  style={{ background: "var(--surface-soft)", borderColor: "var(--border)" }}
+                  onClick={() => {
+                    if (onWarehouseClick) onWarehouseClick(w.id);
+                    else onNavigate?.("shop");
+                  }}
+                >
+                  <div className="font-semibold themed-title text-sm">{w.name}</div>
+                  <div className="text-[12px] themed-muted mt-1">
+                    {warehouseCountLabel(w.skuCount, w.pairs)}
+                  </div>
+                </button>
+              ))}
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <div
             className="w-11 h-11 rounded-2xl flex items-center justify-center mb-4"
@@ -118,7 +125,7 @@ export default function Overview({
           </div>
           <div className="font-bold themed-title text-[15px] mb-1">Create a new bill</div>
           <p className="text-[13px] themed-muted mb-4 leading-relaxed">
-            Build invoices with warehouse stock, customer pricing, and credit claims.
+            Build invoices from godown or shop stock.
           </p>
           <button className="btn btn-primary text-xs" onClick={() => onNavigate?.("billing")}>
             Start billing <ArrowRight size={13} className="inline ml-1" />
@@ -135,40 +142,12 @@ export default function Overview({
           <div className="font-bold themed-title text-[15px] mb-1">Stock check</div>
           <p className="text-[13px] themed-muted mb-4 leading-relaxed">
             {lowStock.length > 0
-              ? `${lowStock.length} size categories are running low across warehouses.`
-              : "All sizes are comfortably stocked right now."}
+              ? `${lowStock.length} size${lowStock.length === 1 ? "" : "s"} are at ${LOW_STOCK_BELOW - 1} pairs or fewer.`
+              : "No sizes are at 0–7 pairs right now."}
           </p>
           <button className="btn text-xs" onClick={() => onNavigate?.("inventory")}>
             Open inventory <ArrowUpRight size={13} className="inline ml-1" />
           </button>
-        </Card>
-
-        <Card
-          className="border-transparent text-[#F2F0F8]"
-          style={{
-            background: "linear-gradient(145deg, #0F766E 0%, #0E7490 100%)",
-            boxShadow: "0 6px 20px rgba(15, 118, 110, 0.25)",
-          }}
-        >
-          <div className="text-[#ecfdf8]/70 text-[11px] uppercase tracking-wide font-semibold mb-2">
-            Business snapshot
-          </div>
-          <div className="text-3xl font-bold mb-1 text-[#ecfdf8]">{inr(revenueCollected)}</div>
-          <div className="text-[#ecfdf8]/80 text-[13px] mb-5">Total revenue collected</div>
-          <div className="flex gap-4 text-[12px] text-[#ecfdf8]">
-            <div>
-              <div className="text-[#ecfdf8]/60">Credit due</div>
-              <div className="font-semibold">{inr(outstandingCredit)}</div>
-            </div>
-            <div>
-              <div className="text-[#ecfdf8]/60">SKUs</div>
-              <div className="font-semibold">{totalSkus}</div>
-            </div>
-            <div>
-              <div className="text-[#ecfdf8]/60">Pairs</div>
-              <div className="font-semibold">{totalPairs.toLocaleString("en-IN")}</div>
-            </div>
-          </div>
         </Card>
       </div>
 
@@ -204,7 +183,7 @@ export default function Overview({
             <table className="soft-table">
               <thead>
                 <tr>
-                  {["Bill", "Customer", "Total", "Paid", "Status"].map((h) => (
+                  {["Bill", "Customer", "Status"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -212,22 +191,13 @@ export default function Overview({
               <tbody>
                 {recentBills.map((b) => (
                   <tr key={b.id} className="cursor-pointer" onClick={() => onNavigate?.("bills")}>
-                    <td className="font-semibold themed-title">
-                      {b.invoiceNo}
-                      {b.status === "voided" ? (
-                        <span className="ml-2"><Tag tone="amber">Voided</Tag></span>
-                      ) : null}
-                    </td>
+                    <td className="font-semibold themed-title">{b.invoiceNo}</td>
                     <td className="themed-muted">{b.customerName}</td>
-                    <td className="font-semibold themed-title">{inr(b.total)}</td>
-                    <td className="themed-muted">{inr(b.paidCash + b.paidOnline)}</td>
                     <td>
-                      {b.balance > 0 ? (
-                        <Tag tone="amber">Credit</Tag>
-                      ) : b.balance < 0 ? (
-                        <Tag tone="green">Advance</Tag>
+                      {b.status === "voided" ? (
+                        <Tag tone="amber">Voided</Tag>
                       ) : (
-                        <Tag tone="teal">Paid</Tag>
+                        <Tag tone="teal">Saved</Tag>
                       )}
                     </td>
                   </tr>
@@ -252,7 +222,7 @@ export default function Overview({
               className="text-[10px] font-semibold px-2 py-1 rounded-full themed-muted"
               style={{ background: "var(--surface-muted)" }}
             >
-              &lt; 8 pairs
+              &lt; {LOW_STOCK_BELOW} pairs
             </span>
           </div>
           <StitchDivider />
@@ -264,7 +234,7 @@ export default function Overview({
               >
                 <Package size={24} className="text-[#3DC97A]" />
               </div>
-              <div className="text-sm themed-muted">All items well stocked</div>
+              <div className="text-sm themed-muted">No sizes below {LOW_STOCK_BELOW} pairs</div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">

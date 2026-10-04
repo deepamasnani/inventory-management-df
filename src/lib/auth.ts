@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { admins } from "@/db/schema";
+import { admins, warehouses } from "@/db/schema";
 import { hashPassword } from "./password";
 import { SESSION_COOKIE, SESSION_MAX_AGE, readSession, signSession } from "./session";
 import { DEFAULT_ADMIN } from "./constants";
@@ -67,6 +67,12 @@ export async function ensureAdminTable() {
   await db.execute(sql`ALTER TABLE bill_items ALTER COLUMN sku_category_id DROP NOT NULL`);
   await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`);
   await db.execute(sql`ALTER TABLE bills ALTER COLUMN warehouse_id DROP NOT NULL`);
+  await db.execute(sql`ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'godown'`);
+  await db.execute(sql`UPDATE warehouses SET kind = 'godown' WHERE kind IS NULL OR kind = ''`);
+  const shops = await db.select({ id: warehouses.id }).from(warehouses).where(eq(warehouses.kind, "shop")).limit(1);
+  if (shops.length === 0) {
+    await db.insert(warehouses).values({ name: "SHOP", kind: "shop" });
+  }
 }
 
 export async function ensureDefaultAdmin() {

@@ -7,7 +7,7 @@ import { ModalShell } from "./ui/ModalShell";
 import { Label } from "./ui/Card";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useToast } from "./ui/Toast";
-import { warehouseCountLabel } from "@/lib/constants";
+import { isShopLocation, warehouseCountLabel } from "@/lib/constants";
 import { addWarehouse, renameWarehouse, deleteWarehouse } from "@/lib/actions";
 import {
   changeAdminPassword,
@@ -16,7 +16,7 @@ import {
   updateAdminEmail,
 } from "@/lib/auth-actions";
 
-type Warehouse = { id: number; name: string };
+type Warehouse = { id: number; name: string; kind?: string | null };
 
 export default function WarehouseModal({
   warehouses,
@@ -234,7 +234,10 @@ export default function WarehouseModal({
                     />
                   ) : (
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm themed-title">{w.name}</span>
+                      <span className="block text-sm themed-title">
+                        {w.name}
+                        {isShopLocation(w) ? " · shop" : ""}
+                      </span>
                       <span className="block text-[11px] themed-muted mt-0.5">
                         {warehouseCountLabel(
                           warehouseStats.find((s) => s.id === w.id)?.skuCount ?? 0,
@@ -254,9 +257,18 @@ export default function WarehouseModal({
                   )}
                   <button
                     className="btn btn-danger px-2.5 py-1"
-                    onClick={() => setDeleteTarget(w)}
-                    disabled={warehouses.length <= 1 || pending}
-                    title={warehouses.length <= 1 ? "Keep at least one warehouse" : `Delete ${w.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(w);
+                    }}
+                    disabled={isShopLocation(w) || warehouses.filter((x) => !isShopLocation(x)).length <= 1 || pending}
+                    title={
+                      isShopLocation(w)
+                        ? "Shop cannot be deleted"
+                        : warehouses.filter((x) => !isShopLocation(x)).length <= 1
+                          ? "Keep at least one godown"
+                          : `Delete ${w.name}`
+                    }
                   >
                     <Trash2 size={13} />
                   </button>
@@ -264,7 +276,7 @@ export default function WarehouseModal({
               ))}
             </div>
 
-            <Label>Add new warehouse</Label>
+            <Label>Add new godown</Label>
             <div className="flex gap-2">
               <input
                 className="field"
@@ -278,7 +290,7 @@ export default function WarehouseModal({
               </button>
             </div>
             <div className="text-xs themed-muted mt-2.5">
-              New warehouses start with zero stock across all SKUs. Deleting a warehouse removes its stock records — past bills stay in history.
+              New godowns start empty. Transfer stock to Shop from Inventory. Shop cannot be deleted.
             </div>
           </>
         )}

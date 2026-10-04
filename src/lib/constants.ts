@@ -85,6 +85,15 @@ export function indiaToday(): string {
 
 export type CustomerType = "A" | "B" | "C" | "D";
 
+export const WAREHOUSE_KIND_GODOWN = "godown";
+export const WAREHOUSE_KIND_SHOP = "shop";
+
+export function isShopLocation(w: { kind?: string | null }): boolean {
+  return (w.kind || WAREHOUSE_KIND_GODOWN) === WAREHOUSE_KIND_SHOP;
+}
+
+export const LOW_STOCK_BELOW = 8;
+
 export const DEFAULT_ADMIN = {
   username: "admin",
   password: "admin123",

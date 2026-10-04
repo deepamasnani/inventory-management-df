@@ -5,13 +5,13 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
 import { useToast } from "./ui/Toast";
 
-type Warehouse = { id: number; name: string };
+type Warehouse = { id: number; name: string; kind?: string | null };
 
 export type InventoryFocus = {
   warehouseId: number;
@@ -84,6 +84,7 @@ export default function InventoryTab({
   initialQuery = "",
   focusTarget = null,
   onFocusHandled,
+  mode = "godown",
 }: {
   skus: SkuWithDetails[];
   warehouses: Warehouse[];
@@ -91,9 +92,18 @@ export default function InventoryTab({
   initialQuery?: string;
   focusTarget?: InventoryFocus | null;
   onFocusHandled?: () => void;
+  mode?: "godown" | "shop";
 }) {
+  const shop = warehouses.find(isShopLocation);
+  const godowns = warehouses.filter((w) => !isShopLocation(w));
+  const viewWarehouses = mode === "shop" ? (shop ? [shop] : []) : godowns;
+  const transferLocations = warehouses;
   const [warehouseId, setWarehouseId] = useState(
-    focusTarget?.warehouseId ?? warehouses[0]?.id
+    mode === "shop"
+      ? shop?.id
+      : focusTarget?.warehouseId && godowns.some((w) => w.id === focusTarget.warehouseId)
+        ? focusTarget.warehouseId
+        : godowns[0]?.id
   );
   const [query, setQuery] = useState(initialQuery);
   const [showAdd, setShowAdd] = useState(false);
@@ -118,7 +128,7 @@ export default function InventoryTab({
   useEffect(() => {
     if (!focusTarget) return;
 
-    const whExists = warehouses.some((w) => w.id === focusTarget.warehouseId);
+    const whExists = viewWarehouses.some((w) => w.id === focusTarget.warehouseId);
     if (whExists) setWarehouseId(focusTarget.warehouseId);
 
     setQuery("");
@@ -150,9 +160,8 @@ export default function InventoryTab({
     };
   }, [focusTarget?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const effectiveWhId = warehouses.some((w) => w.id === warehouseId)
-    ? warehouseId
-    : warehouses[0]?.id;
+  const effectiveWhId =
+    (viewWarehouses.some((w) => w.id === warehouseId) ? warehouseId : viewWarehouses[0]?.id) ?? 0;
 
   const q = query.toLowerCase().trim();
   const filtered = skus.filter((s) => {
@@ -215,12 +224,15 @@ export default function InventoryTab({
     <div>
       <div className="flex justify-between items-center mb-3.5 gap-2.5 flex-wrap">
         <div className="flex gap-2.5 items-center">
+          {mode === "shop" ? (
+            <div className="text-sm font-semibold themed-title">{shop?.name || "SHOP"}</div>
+          ) : (
           <select
             className="field min-w-[240px] w-[320px] max-w-full"
             value={effectiveWhId}
             onChange={(e) => setWarehouseId(Number(e.target.value))}
           >
-            {warehouses.map((w) => {
+            {viewWarehouses.map((w) => {
               const counts = warehouseStats.find((s) => s.id === w.id);
               return (
                 <option key={w.id} value={w.id}>
@@ -231,6 +243,7 @@ export default function InventoryTab({
               );
             })}
           </select>
+          )}
           <div className="relative shrink-0" style={{ width: 360, maxWidth: "100%" }}>
             <Search
               size={14}
@@ -246,17 +259,21 @@ export default function InventoryTab({
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="btn" onClick={() => setShowImport(true)} disabled={warehouses.length === 0}>
+          {mode !== "shop" && (
+            <>
+          <button className="btn" onClick={() => setShowImport(true)} disabled={godowns.length === 0}>
             <FileSpreadsheet size={14} className="inline -mt-0.5" /> Import Excel
           </button>
           <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
             <Plus size={14} className="inline -mt-0.5" /> Add SKU
           </button>
+            </>
+          )}
         </div>
       </div>
       <div className="text-xs themed-muted -mt-1 mb-2">
         {selectedCounts
-          ? `${warehouseCountLabel(selectedCounts.skuCount, selectedCounts.pairs)} in this godown. `
+          ? `${warehouseCountLabel(selectedCounts.skuCount, selectedCounts.pairs)} in this ${mode === "shop" ? "shop" : "godown"}. `
           : null}
         Cartons = pairs ÷ pairs per carton. A value like 3.8 means the 4th carton is not full.
       </div>
@@ -264,7 +281,11 @@ export default function InventoryTab({
       {brandNames.length === 0 ? (
         <Card>
           <div className="py-10 text-center text-sm themed-muted">
-            {q ? "No articles match this search in this godown." : "Nothing listed in this godown yet. Import Excel or add an SKU."}
+            {q
+              ? `No articles match this search in this ${mode === "shop" ? "shop" : "godown"}.`
+              : mode === "shop"
+                ? "Nothing in the shop yet. Transfer stock from a godown."
+                : "Nothing listed in this godown yet. Import Excel or add an SKU."}
           </div>
         </Card>
       ) : (
@@ -391,7 +412,7 @@ export default function InventoryTab({
                           >
                             <Pencil size={12} className="inline -mt-0.5" /> Edit
                           </button>
-                          {warehouses.length > 1 && (
+                          {transferLocations.length > 1 && (
                             <button
                               className="btn text-xs px-2.5 py-1"
                               onClick={() => setTransferSku(s)}
@@ -425,13 +446,13 @@ export default function InventoryTab({
 
       {showAdd && (
         <AddSkuModal
-          warehouses={warehouses}
+          warehouses={godowns}
           onClose={() => setShowAdd(false)}
         />
       )}
       {showImport && (
         <ImportExcelModal
-          warehouses={warehouses}
+          warehouses={godowns}
           onClose={() => setShowImport(false)}
         />
       )}
@@ -450,7 +471,7 @@ export default function InventoryTab({
       {transferSku && (
         <TransferModal
           sku={transferSku}
-          warehouses={warehouses}
+          warehouses={transferLocations}
           fromWarehouseId={effectiveWhId}
           onClose={() => setTransferSku(null)}
         />
@@ -1040,9 +1061,11 @@ function TransferModal({
   onClose: () => void;
 }) {
   const [fromId, setFromId] = useState(fromWarehouseId);
-  const [toId, setToId] = useState(
-    warehouses.find((w) => w.id !== fromWarehouseId)?.id ?? warehouses[0]?.id
-  );
+  const shopId = warehouses.find(isShopLocation)?.id;
+  const [toId, setToId] = useState(() => {
+    if (shopId && shopId !== fromWarehouseId) return shopId;
+    return warehouses.find((w) => w.id !== fromWarehouseId)?.id ?? warehouses[0]?.id;
+  });
   const [qtys, setQtys] = useState<Record<number, string>>({});
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
@@ -1073,7 +1096,9 @@ function TransferModal({
           <Label>From</Label>
           <select className="field" value={fromId} onChange={(e) => setFromId(Number(e.target.value))}>
             {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
+              <option key={w.id} value={w.id}>
+                {isShopLocation(w) ? `${w.name} (shop)` : w.name}
+              </option>
             ))}
           </select>
         </div>
@@ -1081,7 +1106,9 @@ function TransferModal({
           <Label>To</Label>
           <select className="field" value={toId} onChange={(e) => setToId(Number(e.target.value))}>
             {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
+              <option key={w.id} value={w.id}>
+                {isShopLocation(w) ? `${w.name} (shop)` : w.name}
+              </option>
             ))}
           </select>
         </div>

@@ -15,7 +15,7 @@ import { eq, and, sql, desc, asc, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
-import { formatSizeRange, indiaToday } from "./constants";
+import { formatSizeRange, indiaToday, isShopLocation, LOW_STOCK_BELOW, WAREHOUSE_KIND_GODOWN, WAREHOUSE_KIND_SHOP } from "./constants";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export async function getWarehouses() {
 
 export async function addWarehouse(name: string) {
   await requireAdmin();
-  const [wh] = await db.insert(warehouses).values({ name }).returning();
+  const [wh] = await db.insert(warehouses).values({ name, kind: WAREHOUSE_KIND_GODOWN }).returning();
   revalidatePath("/");
   return wh;
 }
@@ -39,18 +39,28 @@ export async function renameWarehouse(id: number, name: string) {
 
 export async function deleteWarehouse(id: number) {
   await requireAdmin();
-  const all = await db.select({ id: warehouses.id }).from(warehouses);
-  if (all.length <= 1) {
-    throw new Error("Keep at least one warehouse.");
+  const all = await db.select().from(warehouses);
+  const target = all.find((w) => w.id === id);
+  if (!target) throw new Error("Warehouse not found.");
+  if (isShopLocation(target)) {
+    throw new Error("Shop cannot be deleted.");
   }
-  await db.transaction(async (tx) => {
-    await tx
-      .update(bills)
-      .set({ warehouseId: null })
-      .where(eq(bills.warehouseId, id));
-    await tx.delete(stock).where(eq(stock.warehouseId, id));
-    await tx.delete(warehouses).where(eq(warehouses.id, id));
-  });
+  const remainingGodowns = all.filter((w) => w.id !== id && !isShopLocation(w));
+  if (remainingGodowns.length < 1) {
+    throw new Error("Keep at least one godown.");
+  }
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(bills)
+        .set({ warehouseId: null })
+        .where(eq(bills.warehouseId, id));
+      await tx.delete(stock).where(eq(stock.warehouseId, id));
+      await tx.delete(warehouses).where(eq(warehouses.id, id));
+    });
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : "Could not delete warehouse.");
+  }
   revalidatePath("/");
 }
 
@@ -796,7 +806,7 @@ export async function getDashboardStats() {
   }[] = [];
 
   allStock
-    .filter((s) => s.qty > 0 && s.qty < 8)
+    .filter((s) => s.qty < LOW_STOCK_BELOW)
     .forEach((s) => {
       const cat = allCats.find((c) => c.id === s.skuCategoryId);
       const sku = allSkus.find((sk) => sk.id === cat?.skuId);
@@ -808,7 +818,7 @@ export async function getDashboardStats() {
           sku: sku.name,
           brand: sku.brand,
           warehouse: wh.name,
-          category: cat.label,
+          category: [cat.label, cat.colour].filter(Boolean).join(" · "),
           qty: s.qty,
         });
       }
@@ -827,7 +837,7 @@ export async function getDashboardStats() {
         const cat = allCats.find((c) => c.id === s.skuCategoryId);
         if (cat) skuIds.add(cat.skuId);
       }
-      return { id: w.id, name: w.name, skuCount: skuIds.size, pairs };
+      return { id: w.id, name: w.name, kind: w.kind || WAREHOUSE_KIND_GODOWN, skuCount: skuIds.size, pairs };
     });
 
   const recentBills = allBills
@@ -840,7 +850,7 @@ export async function getDashboardStats() {
     inventoryValue,
     outstandingCredit,
     revenueCollected,
-    lowStock: lowStock.slice(0, 8),
+    lowStock: lowStock.slice(0, 20),
     recentBills,
     warehouseStats,
   };

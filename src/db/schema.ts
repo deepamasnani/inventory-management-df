@@ -3,6 +3,7 @@ import { pgTable, text, integer, numeric, timestamp, serial, uniqueIndex, real }
 export const warehouses = pgTable("warehouses", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  kind: text("kind").notNull().default("godown"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

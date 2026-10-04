@@ -17,8 +17,9 @@ import {
   AlertTriangle,
   CreditCard,
   CheckCircle2,
+  Store,
 } from "lucide-react";
-import { inr, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
 import Overview from "./Overview";
 import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
@@ -29,7 +30,7 @@ import WarehouseModal from "./WarehouseModal";
 import { ToastProvider, useToast } from "./ui/Toast";
 import type { SkuWithDetails } from "@/lib/actions";
 
-type Warehouse = { id: number; name: string; createdAt: Date | null };
+type Warehouse = { id: number; name: string; kind?: string | null; createdAt: Date | null };
 type Customer = { id: number; name: string; type: string; creditBalance: number };
 type Bill = {
   id: number;
@@ -56,7 +57,7 @@ type DashboardStats = {
   inventoryValue: number;
   outstandingCredit: number;
   revenueCollected: number;
-  warehouseStats: { id: number; name: string; skuCount: number; pairs: number }[];
+  warehouseStats: { id: number; name: string; kind?: string; skuCount: number; pairs: number }[];
   lowStock: {
     skuId: number;
     warehouseId: number;
@@ -72,9 +73,10 @@ type DashboardStats = {
 const navItems = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard, shortcut: "1" },
   { id: "inventory", label: "Inventory", icon: Package, shortcut: "2" },
-  { id: "billing", label: "New Bill", icon: ShoppingCart, shortcut: "3" },
-  { id: "bills", label: "Bills", icon: FileText, shortcut: "4" },
-  { id: "customers", label: "Customers", icon: Users, shortcut: "5" },
+  { id: "shop", label: "Shop", icon: Store, shortcut: "3" },
+  { id: "billing", label: "New Bill", icon: ShoppingCart, shortcut: "4" },
+  { id: "bills", label: "Bills", icon: FileText, shortcut: "5" },
+  { id: "customers", label: "Customers", icon: Users, shortcut: "6" },
 ] as const;
 
 function getGreeting() {
@@ -115,6 +117,8 @@ function AppShellInner({
   const router = useRouter();
   const { toast } = useToast();
 
+  const shop = warehouses.find(isShopLocation);
+  const godowns = warehouses.filter((w) => !isShopLocation(w));
   const creditCustomers = customers.filter((c) => c.creditBalance > 0);
   const notificationCount = stats.lowStock.length + creditCustomers.length;
   const q = search.trim().toLowerCase();
@@ -162,7 +166,7 @@ function AppShellInner({
       )
         return;
 
-      if (e.altKey && e.key >= "1" && e.key <= "5") {
+      if (e.altKey && e.key >= "1" && e.key <= "6") {
         e.preventDefault();
         const idx = parseInt(e.key) - 1;
         if (navItems[idx]) {
@@ -186,9 +190,9 @@ function AppShellInner({
   }
 
   function go(id: string, focus?: Omit<InventoryFocus, "key">) {
-    if (id === "inventory" && focus) {
+    if ((id === "inventory" || id === "shop") && focus) {
       setInventoryFocus({ ...focus, key: Date.now() });
-    } else if (id !== "inventory") {
+    } else if (id !== "inventory" && id !== "shop") {
       setInventoryFocus(null);
     }
     if (id !== "bills") setOpenBillId(null);
@@ -225,7 +229,7 @@ function AppShellInner({
     warehouseId: number;
   }) {
     setShowNotifications(false);
-    go("inventory", {
+    go(isShopLocation({ kind: warehouses.find((w) => w.id === item.warehouseId)?.kind }) ? "shop" : "inventory", {
       skuId: item.skuId,
       warehouseId: item.warehouseId,
     });
@@ -297,7 +301,7 @@ function AppShellInner({
             >
               <WarehouseIcon size={17} />
               <span className="text-[13px]">
-                {warehouses.length} warehouse{warehouses.length !== 1 ? "s" : ""}
+                {godowns.length} godown{godowns.length !== 1 ? "s" : ""}
               </span>
             </button>
           </div>
@@ -356,9 +360,10 @@ function AppShellInner({
                                 onClick={() => {
                                   setInventoryQuery("");
                                   const stockedWh =
+                                    godowns.find((w) => skuPresentInWarehouse(s, w.id)) ??
                                     warehouses.find((w) => skuPresentInWarehouse(s, w.id)) ??
                                     warehouses[0];
-                                  go("inventory", {
+                                  go(stockedWh && isShopLocation(stockedWh) ? "shop" : "inventory", {
                                     skuId: s.id,
                                     warehouseId: stockedWh?.id ?? 0,
                                   });
@@ -522,7 +527,7 @@ function AppShellInner({
                           </div>
                         ) : (
                           <div className="py-1">
-                            {stats.lowStock.slice(0, 6).map((item, i) => (
+                            {stats.lowStock.slice(0, 12).map((item, i) => (
                               <button
                                 key={`stock-${i}`}
                                 className="w-full text-left px-4 py-3 bg-transparent border-none hover:opacity-90 transition-colors"
@@ -640,7 +645,8 @@ function AppShellInner({
                 </h1>
                 <p className="text-[13px] themed-muted mt-1">
                   {tab === "overview" && "Your business at a glance"}
-                  {tab === "inventory" && "Manage stock across all warehouses"}
+                  {tab === "inventory" && "Manage stock across godowns"}
+                  {tab === "shop" && "Stock sent to the shop"}
                   {tab === "billing" && "Create a new bill for a customer"}
                   {tab === "bills" && "View and reprint past invoices"}
                   {tab === "customers" && "Customer accounts and credit ledger"}
@@ -657,7 +663,10 @@ function AppShellInner({
               <Overview
                 {...stats}
                 onNavigate={go}
-                onWarehouseClick={(warehouseId) => go("inventory", { warehouseId })}
+                onWarehouseClick={(warehouseId) => {
+                  const w = warehouses.find((x) => x.id === warehouseId);
+                  go(w && isShopLocation(w) ? "shop" : "inventory", { warehouseId });
+                }}
                 onLowStockClick={openLowStockItem}
               />
             )}
@@ -669,6 +678,18 @@ function AppShellInner({
                 initialQuery={inventoryQuery}
                 focusTarget={inventoryFocus}
                 onFocusHandled={() => setInventoryFocus(null)}
+                mode="godown"
+              />
+            )}
+            {tab === "shop" && shop && (
+              <InventoryTab
+                skus={skus}
+                warehouses={warehouses}
+                warehouseStats={stats.warehouseStats}
+                initialQuery={inventoryQuery}
+                focusTarget={inventoryFocus}
+                onFocusHandled={() => setInventoryFocus(null)}
+                mode="shop"
               />
             )}
             {tab === "billing" && (
