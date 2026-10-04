@@ -96,6 +96,7 @@ function AppShellInner({
   skus,
   customers,
   bills,
+  payments,
 }: {
   initialTab: string;
   stats: DashboardStats;
@@ -103,6 +104,7 @@ function AppShellInner({
   skus: SkuWithDetails[];
   customers: Customer[];
   bills: Bill[];
+  payments: { id: number; customerId: number; billId: number | null; date: string; amount: number; method: string; note: string | null }[];
 }) {
   const [tab, setTab] = useState<string>(initialTab);
   const [printBill, setPrintBill] = useState<any>(null);
@@ -702,6 +704,7 @@ function AppShellInner({
             {tab === "bills" && (
               <BillsTab
                 bills={bills}
+                payments={payments}
                 onReprint={(b) => setPrintBill(b)}
                 initialQuery={billsQuery}
                 initialOpenId={openBillId}
@@ -710,6 +713,15 @@ function AppShellInner({
             {tab === "customers" && (
               <CustomersTab
                 customers={customers}
+                bills={bills}
+                payments={payments}
+                onOpenBill={(id) => {
+                  setOpenCustomerId(null);
+                  setOpenBillId(id);
+                  setShowSearch(false);
+                  setTab("bills");
+                  router.replace("/?tab=bills", { scroll: false });
+                }}
                 initialQuery={customersQuery}
                 initialOpenId={openCustomerId}
               />
@@ -751,6 +763,7 @@ export default function AppShell(props: {
   skus: SkuWithDetails[];
   customers: Customer[];
   bills: Bill[];
+  payments: { id: number; customerId: number; billId: number | null; date: string; amount: number; method: string; note: string | null }[];
 }) {
   return (
     <ToastProvider>

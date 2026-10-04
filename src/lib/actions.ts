@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
 import { formatSizeRange, indiaToday, isShopLocation, LOW_STOCK_BELOW, WAREHOUSE_KIND_GODOWN, WAREHOUSE_KIND_SHOP } from "./constants";
+import { billCreditNote, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -513,49 +514,58 @@ export async function deleteCustomer(customerId: number) {
   revalidatePath("/");
 }
 
-export async function settleCredit(
-  customerId: number,
-  amount: number,
-  method: string
-) {
+export async function settleBillCredit(billId: number, amount: number, method: string) {
   await requireAdmin();
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("Enter a valid payment amount.");
   }
-
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, customerId))
-    .limit(1);
-
-  if (!customer) {
-    throw new Error("Customer not found.");
+  if (method !== "Cash" && method !== "Online") {
+    throw new Error("Choose Cash or Online.");
   }
 
-  if (customer.creditBalance <= 0) {
-    throw new Error("This customer has no outstanding credit to settle.");
-  }
+  await db.transaction(async (tx) => {
+    const [bill] = await tx.select().from(bills).where(eq(bills.id, billId)).for("update").limit(1);
+    if (!bill) throw new Error("Bill not found.");
+    if (bill.status === "voided") throw new Error("Cannot collect credit on a voided bill.");
 
-  if (amount > customer.creditBalance) {
-    throw new Error(
-      `Payment cannot exceed outstanding credit of ₹${customer.creditBalance.toLocaleString("en-IN")}.`
+    const billPayments = await tx.select().from(payments).where(
+      or(
+        eq(payments.billId, billId),
+        and(
+          eq(payments.customerId, bill.customerId),
+          or(
+            eq(payments.note, `Bill ${bill.invoiceNo}`),
+            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`),
+            eq(payments.note, billCreditNote(bill.invoiceNo))
+          )
+        )
+      )
     );
-  }
+    const remaining = remainingBillCredit(bill, billPayments);
+    if (remaining <= 0) {
+      throw new Error("This bill has no outstanding credit to settle.");
+    }
+    if (amount > remaining) {
+      throw new Error(
+        `Payment cannot exceed this bill's remaining credit of ₹${remaining.toLocaleString("en-IN")}.`
+      );
+    }
 
-  await db
-    .update(customers)
-    .set({
-      creditBalance: sql`${customers.creditBalance} - ${amount}`,
-    })
-    .where(eq(customers.id, customerId));
+    await tx
+      .update(customers)
+      .set({
+        creditBalance: sql`${customers.creditBalance} - ${amount}`,
+      })
+      .where(eq(customers.id, bill.customerId));
 
-  await db.insert(payments).values({
-    customerId,
-    date: indiaToday(),
-    amount,
-    method,
-    note: "Credit settlement",
+    await tx.insert(payments).values({
+      customerId: bill.customerId,
+      billId: bill.id,
+      date: indiaToday(),
+      amount,
+      method,
+      note: billCreditNote(bill.invoiceNo),
+    });
   });
   revalidatePath("/");
 }
@@ -567,6 +577,11 @@ export async function getPayments(customerId: number) {
     .from(payments)
     .where(eq(payments.customerId, customerId))
     .orderBy(desc(payments.id));
+}
+
+export async function getAllPayments() {
+  await requireAdmin();
+  return db.select().from(payments).orderBy(desc(payments.id));
 }
 
 export async function deletePayment(paymentId: number) {
@@ -582,7 +597,7 @@ export async function deletePayment(paymentId: number) {
   }
 
   // Credit settlements reduce outstanding credit — restore it when deleted.
-  if (payment.note === "Credit settlement") {
+  if (isBillCreditSettlement(payment.note)) {
     await db
       .update(customers)
       .set({
@@ -698,6 +713,7 @@ export async function createBill(input: BillInput) {
     if (input.paidCash > 0) {
       paymentRows.push({
         customerId: input.customerId,
+        billId: inserted.id,
         date,
         amount: input.paidCash,
         method: "Cash",
@@ -707,6 +723,7 @@ export async function createBill(input: BillInput) {
     if (input.paidOnline > 0) {
       paymentRows.push({
         customerId: input.customerId,
+        billId: inserted.id,
         date,
         amount: input.paidOnline,
         method: "Online",
@@ -716,6 +733,7 @@ export async function createBill(input: BillInput) {
     if (input.claim > 0) {
       paymentRows.push({
         customerId: input.customerId,
+        billId: inserted.id,
         date,
         amount: input.claim,
         method: "Claim",
@@ -766,24 +784,32 @@ export async function voidBill(billId: number) {
       }
     }
 
-    await tx
-      .update(customers)
-      .set({
-        creditBalance: sql`${customers.creditBalance} - ${bill.balance} - ${bill.claim}`,
-      })
-      .where(eq(customers.id, bill.customerId));
-
-    await tx
-      .delete(payments)
-      .where(
+    const linkedPayments = await tx.select().from(payments).where(
+      or(
+        eq(payments.billId, billId),
         and(
           eq(payments.customerId, bill.customerId),
           or(
             eq(payments.note, `Bill ${bill.invoiceNo}`),
-            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`)
+            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`),
+            eq(payments.note, billCreditNote(bill.invoiceNo))
           )
         )
-      );
+      )
+    );
+    const settled = settledAgainstBill(bill, linkedPayments);
+
+    await tx
+      .update(customers)
+      .set({
+        creditBalance: sql`${customers.creditBalance} - ${bill.balance} - ${bill.claim} + ${settled}`,
+      })
+      .where(eq(customers.id, bill.customerId));
+
+    const linkedIds = linkedPayments.map((p) => p.id);
+    if (linkedIds.length > 0) {
+      await tx.delete(payments).where(inArray(payments.id, linkedIds));
+    }
 
     await tx.update(bills).set({ status: "voided" }).where(eq(bills.id, billId));
   });

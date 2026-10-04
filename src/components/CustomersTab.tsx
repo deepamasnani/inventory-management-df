@@ -2,101 +2,47 @@
 
 import React, { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { Card } from "./ui/Card";
 import { Tag } from "./ui/Tag";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { inr } from "@/lib/constants";
-import { settleCredit, getPayments, deletePayment, deleteCustomer } from "@/lib/actions";
+import { deleteCustomer } from "@/lib/actions";
+import {
+  initialBillCredit,
+  paymentsForBill,
+  remainingBillCredit,
+  type PaymentCreditFields,
+} from "@/lib/bill-credit";
+import { BillCreditPayForm, BillPaymentBreakdown } from "./BillPaymentDetails";
 import { useToast } from "./ui/Toast";
 
 type Customer = { id: number; name: string; type: string; creditBalance: number };
-type Payment = { id: number; date: string; amount: number; method: string; note: string | null };
+type Bill = {
+  id: number;
+  invoiceNo: string;
+  date: string;
+  customerId: number;
+  balance: number;
+  status?: string | null;
+};
 
-function CustomerDetail({ customer }: { customer: Customer }) {
-  const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("Cash");
-  const [paymentsList, setPaymentsList] = useState<Payment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pending, startTransition] = useTransition();
-  const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
-  const { toast } = useToast();
-  const router = useRouter();
-
+function CustomerBills({
+  customer,
+  bills,
+  payments,
+  onOpenBill,
+}: {
+  customer: Customer;
+  bills: Bill[];
+  payments: PaymentCreditFields[];
+  onOpenBill: (billId: number) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const outstanding = Math.max(0, customer.creditBalance);
-  const amountN = Number(amount) || 0;
-  const exceedsCredit = amountN > outstanding;
-  const canSettle = outstanding > 0 && amountN > 0 && !exceedsCredit && !pending;
 
-  async function reloadPayments() {
-    const p = await getPayments(customer.id);
-    setPaymentsList(p);
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    getPayments(customer.id)
-      .then((p) => {
-        if (!cancelled) {
-          setPaymentsList(p);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [customer.id]);
-
-  function submit() {
-    const n = Number(amount);
-    if (!n || n <= 0) {
-      toast("Enter a valid payment amount.", "error");
-      return;
-    }
-    if (outstanding <= 0) {
-      toast("This customer has no outstanding credit to settle.", "error");
-      return;
-    }
-    if (n > outstanding) {
-      toast(`Payment cannot exceed outstanding credit of ${inr(outstanding)}.`, "error");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        await settleCredit(customer.id, n, method);
-        toast(`₹${n.toLocaleString("en-IN")} payment recorded for ${customer.name}`);
-        await reloadPayments();
-        setAmount("");
-        router.refresh();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not record payment.", "error");
-      }
-    });
-  }
-
-  function confirmDelete() {
-    if (!deleteTarget) return;
-    const target = deleteTarget;
-    setDeleteTarget(null);
-    startTransition(async () => {
-      try {
-        await deletePayment(target.id);
-        toast(
-          target.note === "Credit settlement"
-            ? `Deleted settlement of ${inr(target.amount)} — credit restored`
-            : `Deleted payment of ${inr(target.amount)}`,
-          "info"
-        );
-        await reloadPayments();
-        router.refresh();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not delete payment.", "error");
-      }
-    });
+  if (bills.length === 0) {
+    return <div className="p-3 text-sm themed-muted">No bills for this customer yet.</div>;
   }
 
   return (
@@ -104,117 +50,85 @@ function CustomerDetail({ customer }: { customer: Customer }) {
       <div className="text-xs themed-muted mb-2">
         {outstanding > 0 ? (
           <>
-            Outstanding credit: <b className="font-mono text-[#E07A3A]">{inr(outstanding)}</b>
-            {" · "}Payment cannot exceed this amount.
+            Total outstanding: <b className="font-mono text-[#E07A3A]">{inr(outstanding)}</b>
+            {" · "}Pay against a specific bill below.
           </>
         ) : (
-          <>No outstanding credit to settle for this customer.</>
+          <>No outstanding credit. Expand a bill to see how it was paid.</>
         )}
       </div>
-      <div className="flex gap-2 items-center mb-2 flex-wrap">
-        <input
-          className="field w-[140px]"
-          type="number"
-          min={0}
-          max={outstanding || undefined}
-          placeholder="Amount received"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          disabled={outstanding <= 0 || pending}
-        />
-        <select
-          className="field w-[110px]"
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          disabled={outstanding <= 0 || pending}
-        >
-          <option>Cash</option>
-          <option>Online</option>
-        </select>
-        <button className="btn btn-primary" onClick={submit} disabled={!canSettle}>
-          Record payment against credit
-        </button>
-        {outstanding > 0 && (
-          <button
-            className="btn text-xs"
-            type="button"
-            disabled={pending}
-            onClick={() => setAmount(String(outstanding))}
-          >
-            Pay full {inr(outstanding)}
-          </button>
-        )}
-      </div>
-      {exceedsCredit && amount !== "" && (
-        <div className="text-xs text-[#E05A5A] mb-3">
-          Entered amount is greater than outstanding credit ({inr(outstanding)}).
-        </div>
-      )}
-
-      {loading ? (
-        <div className="text-sm themed-muted">Loading payment history…</div>
-      ) : paymentsList.length === 0 ? (
-        <div className="text-sm themed-muted">No payment history yet.</div>
-      ) : (
-        <table className="soft-table">
-          <thead>
-            <tr>
-              {["Date", "Amount", "Method", "Note", ""].map((h) => (
-                <th key={h || "actions"}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {paymentsList.map((p) => (
-              <tr key={p.id}>
-                <td className="themed-muted">{p.date}</td>
-                <td className="font-semibold themed-title">{inr(p.amount)}</td>
-                <td>
-                  <Tag tone={p.method === "Cash" ? "green" : p.method === "Claim" ? "amber" : "teal"}>
-                    {p.method}
-                  </Tag>
-                </td>
-                <td className="themed-muted">{p.note}</td>
-                <td className="text-right">
-                  <button
-                    className="btn btn-danger text-xs px-2.5 py-1"
-                    title="Delete payment"
-                    disabled={pending}
-                    onClick={() => setDeleteTarget(p)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </td>
-              </tr>
+      <table className="soft-table">
+        <thead>
+          <tr>
+            {["Bill", "Date", "Initial credit", "Remaining", ""].map((h) => (
+              <th key={h || "actions"}>{h}</th>
             ))}
-          </tbody>
-        </table>
-      )}
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete this payment?"
-          message={
-            deleteTarget.note === "Credit settlement"
-              ? `This will remove the ${inr(deleteTarget.amount)} credit settlement and restore that amount to ${customer.name}'s outstanding credit.`
-              : `This will remove the ${inr(deleteTarget.amount)} ${deleteTarget.method} payment from history. Credit balance is not changed for bill payments.`
-          }
-          confirmLabel="Delete payment"
-          danger
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+          </tr>
+        </thead>
+        <tbody>
+          {bills.map((bill) => {
+            const initial = initialBillCredit(bill);
+            const remaining = remainingBillCredit(bill, payments);
+            const billPayments = paymentsForBill(bill, payments);
+            const open = expandedId === bill.id;
+            return (
+              <React.Fragment key={bill.id}>
+                <tr>
+                  <td className="font-semibold themed-title">
+                    <button
+                      type="button"
+                      className="underline underline-offset-2 hover:opacity-80"
+                      onClick={() => onOpenBill(bill.id)}
+                    >
+                      {bill.invoiceNo}
+                    </button>
+                    {bill.status === "voided" ? (
+                      <span className="ml-2"><Tag tone="amber">Voided</Tag></span>
+                    ) : null}
+                  </td>
+                  <td className="themed-muted">{bill.date}</td>
+                  <td className="themed-muted">{initial > 0 ? inr(initial) : "—"}</td>
+                  <td className={`font-semibold ${remaining > 0 ? "text-[#E07A3A]" : "themed-muted"}`}>
+                    {remaining > 0 ? inr(remaining) : "—"}
+                  </td>
+                  <td>
+                    <button className="btn text-xs" onClick={() => setExpandedId(open ? null : bill.id)}>
+                      {open ? <ChevronDown size={13} className="inline" /> : <ChevronRight size={13} className="inline" />}{" "}
+                      {open ? "Hide payments" : "Payments"}
+                    </button>
+                  </td>
+                </tr>
+                {open && (
+                  <tr>
+                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                      <div className="p-3">
+                        <BillCreditPayForm bill={bill} remaining={remaining} />
+                        <BillPaymentBreakdown payments={billPayments} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export default function CustomersTab({
   customers,
+  bills,
+  payments,
+  onOpenBill,
   initialQuery = "",
   initialOpenId = null,
 }: {
   customers: Customer[];
+  bills: Bill[];
+  payments: PaymentCreditFields[];
+  onOpenBill: (billId: number) => void;
   initialQuery?: string;
   initialOpenId?: number | null;
 }) {
@@ -307,7 +221,7 @@ export default function CustomersTab({
                         className="btn text-xs"
                         onClick={() => setOpenId(openId === c.id ? null : c.id)}
                       >
-                        {openId === c.id ? "Close" : "Details"}
+                        {openId === c.id ? "Close" : "Bills"}
                       </button>
                       <button
                         className="btn btn-danger text-xs px-2.5 py-1"
@@ -323,7 +237,12 @@ export default function CustomersTab({
                 {openId === c.id && (
                   <tr>
                     <td colSpan={4} style={{ background: "var(--surface-soft)" }}>
-                      <CustomerDetail customer={c} />
+                      <CustomerBills
+                        customer={c}
+                        bills={bills.filter((b) => b.customerId === c.id)}
+                        payments={payments}
+                        onOpenBill={onOpenBill}
+                      />
                     </td>
                   </tr>
                 )}

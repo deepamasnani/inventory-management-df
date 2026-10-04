@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import React, { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Printer } from "lucide-react";
+import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Tag } from "./ui/Tag";
 import { CUSTOMER_TYPES, inr } from "@/lib/constants";
 import { dispatchBill, getBillItems, voidBill } from "@/lib/actions";
+import {
+  initialBillCredit,
+  paymentsForBill,
+  remainingBillCredit,
+  type PaymentCreditFields,
+} from "@/lib/bill-credit";
+import { BillCreditPayForm, BillPaymentBreakdown } from "./BillPaymentDetails";
 import { useToast } from "./ui/Toast";
 
 type Bill = {
@@ -49,16 +56,19 @@ function DetailRow({ label, value, mono, strong }: { label: string; value: strin
 
 export default function BillsTab({
   bills,
+  payments,
   onReprint,
   initialQuery = "",
   initialOpenId = null,
 }: {
   bills: Bill[];
+  payments: PaymentCreditFields[];
   onReprint: (bill: Bill & { items: BillItem[] }) => void;
   initialQuery?: string;
   initialOpenId?: number | null;
 }) {
   const [openId, setOpenId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [openItems, setOpenItems] = useState<BillItem[]>([]);
   const [query, setQuery] = useState(initialQuery);
   const [pending, startTransition] = useTransition();
@@ -113,7 +123,10 @@ export default function BillsTab({
   }, [initialQuery]);
 
   useEffect(() => {
-    if (initialOpenId) handleOpen(initialOpenId);
+    if (initialOpenId) {
+      setExpandedId(initialOpenId);
+      handleOpen(initialOpenId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpenId]);
 
@@ -138,14 +151,19 @@ export default function BillsTab({
           <table className="soft-table">
             <thead>
               <tr>
-                {["Bill", "Date", "Customer", "Warehouse", "Total", "Credit Δ", ""].map((h) => (
+                {["Bill", "Date", "Customer", "Warehouse", "Total", "Credit left", ""].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((b) => (
-                <tr key={b.id}>
+              {filtered.map((b) => {
+                const remaining = remainingBillCredit(b, payments);
+                const initial = initialBillCredit(b);
+                const open = expandedId === b.id;
+                return (
+                <React.Fragment key={b.id}>
+                <tr>
                   <td className="font-semibold themed-title">
                     {b.invoiceNo}
                     {b.status === "voided" ? (
@@ -160,11 +178,19 @@ export default function BillsTab({
                   <td className="themed-muted">{b.customerName}</td>
                   <td className="themed-muted">{b.warehouseName}</td>
                   <td className="font-semibold themed-title">{inr(b.total)}</td>
-                  <td className={`font-semibold ${(b.balance + b.claim) > 0 ? "text-[#E07A3A]" : (b.balance + b.claim) < 0 ? "text-[#3DC97A]" : "themed-muted"}`}>
-                    {(b.balance + b.claim) === 0 ? "—" : ((b.balance + b.claim) > 0 ? "+" : "") + inr(b.balance + b.claim)}
+                  <td className={`font-semibold ${remaining > 0 ? "text-[#E07A3A]" : "themed-muted"}`}>
+                    {remaining > 0
+                      ? `${inr(remaining)}${initial > remaining ? ` of ${inr(initial)}` : ""}`
+                      : initial > 0
+                        ? "Paid"
+                        : "—"}
                   </td>
                   <td className="whitespace-nowrap">
-                    <button className="btn text-xs" onClick={() => handleOpen(b.id)}>View</button>
+                    <button className="btn text-xs" onClick={() => setExpandedId(open ? null : b.id)}>
+                      {open ? <ChevronDown size={13} className="inline" /> : <ChevronRight size={13} className="inline" />}{" "}
+                      Payments
+                    </button>
+                    <button className="btn text-xs ml-1.5" onClick={() => handleOpen(b.id)}>View</button>
                     {b.status !== "voided" && b.dispatchStatus !== "dispatched" ? (
                       <button className="btn btn-primary text-xs ml-1.5" disabled={pending} onClick={() => handleDispatch(b)}>
                         Dispatch
@@ -172,7 +198,19 @@ export default function BillsTab({
                     ) : null}
                   </td>
                 </tr>
-              ))}
+                {open && (
+                  <tr>
+                    <td colSpan={7} style={{ background: "var(--surface-soft)" }}>
+                      <div className="p-3">
+                        <BillCreditPayForm bill={b} remaining={remaining} />
+                        <BillPaymentBreakdown payments={paymentsForBill(b, payments)} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -229,6 +267,11 @@ export default function BillsTab({
             <DetailRow label="Paid — cash" value={inr(openBill.paidCash)} mono />
             <DetailRow label="Paid — online" value={inr(openBill.paidOnline)} mono />
             <DetailRow label="Balance this bill" value={inr(openBill.balance)} mono />
+            <DetailRow
+              label="Credit remaining"
+              value={inr(remainingBillCredit(openBill, payments))}
+              mono
+            />
             <DetailRow label="Net credit change" value={inr(openBill.balance + openBill.claim)} mono />
           </div>
 

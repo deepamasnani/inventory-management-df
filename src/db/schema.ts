@@ -95,6 +95,7 @@ export const passwordResetOtps = pgTable("password_reset_otps", {
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id").notNull().references(() => customers.id),
+  billId: integer("bill_id").references(() => bills.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
   amount: integer("amount").notNull(),
   method: text("method").notNull(),

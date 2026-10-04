@@ -1,4 +1,4 @@
-import { getDashboardStats, getWarehouses, getSkusWithStock, getCustomers, getBills } from "@/lib/actions";
+import { getDashboardStats, getWarehouses, getSkusWithStock, getCustomers, getBills, getAllPayments } from "@/lib/actions";
 import { ensureDefaultAdmin } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 
@@ -17,12 +17,13 @@ export default async function Home({
     ? (params.tab as string)
     : "overview";
 
-  const [stats, warehouses, skus, customers, allBills] = await Promise.all([
+  const [stats, warehouses, skus, customers, allBills, allPayments] = await Promise.all([
     getDashboardStats(),
     getWarehouses(),
     getSkusWithStock(),
     getCustomers(),
     getBills(),
+    getAllPayments(),
   ]);
 
   return (
@@ -33,6 +34,7 @@ export default async function Home({
       skus={skus}
       customers={customers}
       bills={allBills}
+      payments={allPayments}
     />
   );
 }
