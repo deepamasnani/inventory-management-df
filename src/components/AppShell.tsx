@@ -56,6 +56,7 @@ type DashboardStats = {
   inventoryValue: number;
   outstandingCredit: number;
   revenueCollected: number;
+  warehouseStats: { id: number; name: string; skuCount: number; pairs: number }[];
   lowStock: {
     skuId: number;
     warehouseId: number;
@@ -656,6 +657,7 @@ function AppShellInner({
               <Overview
                 {...stats}
                 onNavigate={go}
+                onWarehouseClick={(warehouseId) => go("inventory", { warehouseId })}
                 onLowStockClick={openLowStockItem}
               />
             )}
@@ -663,6 +665,7 @@ function AppShellInner({
               <InventoryTab
                 skus={skus}
                 warehouses={warehouses}
+                warehouseStats={stats.warehouseStats}
                 initialQuery={inventoryQuery}
                 focusTarget={inventoryFocus}
                 onFocusHandled={() => setInventoryFocus(null)}
@@ -672,6 +675,7 @@ function AppShellInner({
               <BillingTab
                 skus={skus}
                 warehouses={warehouses}
+                warehouseStats={stats.warehouseStats}
                 customers={customers}
                 onBillCreated={handleBillCreated}
               />
@@ -699,6 +703,7 @@ function AppShellInner({
       {showWarehouseModal && (
         <WarehouseModal
           warehouses={warehouses}
+          warehouseStats={stats.warehouseStats}
           onClose={() => {
             setShowWarehouseModal(false);
             router.refresh();

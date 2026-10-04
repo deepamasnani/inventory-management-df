@@ -818,6 +818,20 @@ export async function getDashboardStats() {
 
   lowStock.sort((a, b) => a.qty - b.qty);
 
+  const warehouseStats = allWarehouses
+    .slice()
+    .sort((a, b) => a.id - b.id)
+    .map((w) => {
+      const rows = allStock.filter((s) => s.warehouseId === w.id && s.qty > 0);
+      const pairs = rows.reduce((n, s) => n + s.qty, 0);
+      const skuIds = new Set<number>();
+      for (const s of rows) {
+        const cat = allCats.find((c) => c.id === s.skuCategoryId);
+        if (cat) skuIds.add(cat.skuId);
+      }
+      return { id: w.id, name: w.name, skuCount: skuIds.size, pairs };
+    });
+
   const recentBills = allBills
     .sort((a, b) => b.id - a.id)
     .slice(0, 8);
@@ -830,5 +844,6 @@ export async function getDashboardStats() {
     revenueCollected,
     lowStock: lowStock.slice(0, 8),
     recentBills,
+    warehouseStats,
   };
 }

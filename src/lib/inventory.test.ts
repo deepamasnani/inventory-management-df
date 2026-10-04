@@ -82,9 +82,11 @@ test("Excel import treats ? as 0, keeps one size, and reads carton notes as cart
       ["ZIPTRON", "CT", "15*19", "?", "MIX", "KIDS SHOE LOOSE", "?"],
       ["LAKHANI", "RUSTOM", 5, 120, "BLACK", "GENTS HAWAI BOX", 60],
       ["MIX", "SPORT SHOES MIX COMPANY", "11*5", 1008, "MIX", "SPORT SHOE BOX", "48( 21 CARTON)"],
+      ["AJIO", "AS-3", "6*10", "25 PAIR", "BLUE", "GENTS SHOE BOX", 36],
+      ["AJIO", "MIX", "SPORT SHOE GENTS", "72 PAIR", "MIX", "GENTS SHOE BOX", 36],
     ])
   );
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 5);
   assert.equal(rows[0].qty, 0);
   assert.equal(rows[0].pairsPerCarton, 0);
   assert.equal(rows[1].size, "5");
@@ -92,4 +94,8 @@ test("Excel import treats ? as 0, keeps one size, and reads carton notes as cart
   assert.equal(rows[1].pairsPerCarton, 60);
   assert.equal(rows[2].qty, 1008);
   assert.equal(rows[2].pairsPerCarton, 21);
+  assert.equal(rows[3].qty, 25);
+  assert.equal(rows[3].size, "6-10");
+  assert.equal(rows[4].qty, 72);
+  assert.equal(rows[4].size, "SPORT SHOE GENTS");
 });

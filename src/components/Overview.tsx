@@ -13,7 +13,7 @@ import {
 import { Card, StitchDivider } from "./ui/Card";
 import { StatCard } from "./ui/StatCard";
 import { Tag } from "./ui/Tag";
-import { inr } from "@/lib/constants";
+import { inr, warehouseCountLabel } from "@/lib/constants";
 
 type LowStockItem = {
   skuId: number;
@@ -43,7 +43,9 @@ type Props = {
     claim: number;
     status?: string | null;
   }[];
+  warehouseStats: { id: number; name: string; skuCount: number; pairs: number }[];
   onNavigate?: (tab: string) => void;
+  onWarehouseClick?: (warehouseId: number) => void;
   onLowStockClick?: (item: LowStockItem) => void;
 };
 
@@ -55,7 +57,9 @@ export default function Overview({
   revenueCollected,
   lowStock,
   recentBills,
+  warehouseStats,
   onNavigate,
+  onWarehouseClick,
   onLowStockClick,
 }: Props) {
   return (
@@ -77,6 +81,32 @@ export default function Overview({
           <StatCard icon={TrendingUp} label="Revenue collected" value={inr(revenueCollected)} tone="teal" />
         </button>
       </div>
+
+      {warehouseStats.length > 0 && (
+        <Card>
+          <div className="font-bold text-[15px] themed-title mb-1">Stock by godown</div>
+          <StitchDivider />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+            {warehouseStats.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                className="text-left rounded-2xl p-3.5 border transition-all hover:opacity-90"
+                style={{ background: "var(--surface-soft)", borderColor: "var(--border)" }}
+                onClick={() => {
+                  if (onWarehouseClick) onWarehouseClick(w.id);
+                  else onNavigate?.("inventory");
+                }}
+              >
+                <div className="font-semibold themed-title text-sm">{w.name}</div>
+                <div className="text-[12px] themed-muted mt-1">
+                  {warehouseCountLabel(w.skuCount, w.pairs)}
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>

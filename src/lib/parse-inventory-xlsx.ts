@@ -24,12 +24,19 @@ function blankUnknown(s: string): boolean {
   return !s || s === "?" || s === "??";
 }
 
+function firstNumber(s: string): number {
+  const m = s.match(/(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : 0;
+}
+
 function num(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   const s = String(v ?? "").replace(/,/g, "").trim();
   if (blankUnknown(s)) return 0;
   const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
+  if (Number.isFinite(n)) return n;
+  const extracted = firstNumber(s);
+  return Number.isFinite(extracted) ? extracted : 0;
 }
 
 /** Cells like `48( 21 CARTON)` are carton counts, not pairs-per-carton. */
@@ -46,7 +53,9 @@ function pairsPerCarton(v: unknown, qty: number): number {
     return nums[1] > 0 ? nums[1] : 0;
   }
   const n = Number(s);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  if (Number.isFinite(n) && n > 0) return n;
+  const extracted = firstNumber(s);
+  return extracted > 0 ? extracted : 0;
 }
 
 function headerKey(s: string) {

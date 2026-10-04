@@ -7,6 +7,7 @@ import { ModalShell } from "./ui/ModalShell";
 import { Label } from "./ui/Card";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useToast } from "./ui/Toast";
+import { warehouseCountLabel } from "@/lib/constants";
 import { addWarehouse, renameWarehouse, deleteWarehouse } from "@/lib/actions";
 import {
   changeAdminPassword,
@@ -19,9 +20,11 @@ type Warehouse = { id: number; name: string };
 
 export default function WarehouseModal({
   warehouses,
+  warehouseStats = [],
   onClose,
 }: {
   warehouses: Warehouse[];
+  warehouseStats?: { id: number; skuCount: number; pairs: number }[];
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"account" | "warehouses">("account");
@@ -230,7 +233,15 @@ export default function WarehouseModal({
                       autoFocus
                     />
                   ) : (
-                    <span className="flex-1 text-sm themed-title">{w.name}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm themed-title">{w.name}</span>
+                      <span className="block text-[11px] themed-muted mt-0.5">
+                        {warehouseCountLabel(
+                          warehouseStats.find((s) => s.id === w.id)?.skuCount ?? 0,
+                          warehouseStats.find((s) => s.id === w.id)?.pairs ?? 0
+                        )}
+                      </span>
+                    </span>
                   )}
                   {editingId === w.id ? (
                     <button className="btn px-2.5 py-1" onClick={saveEdit}>

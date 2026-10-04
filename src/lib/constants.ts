@@ -59,6 +59,12 @@ export function skuPairsInWarehouse(
   return sku.categories.reduce((n, c) => n + (sku.stock[warehouseId]?.[c.id] ?? 0), 0);
 }
 
+export function warehouseCountLabel(skuCount: number, pairs: number): string {
+  const skuBit = `${skuCount} SKU${skuCount === 1 ? "" : "s"}`;
+  const unitBit = `${pairs.toLocaleString("en-IN")} unit${pairs === 1 ? "" : "s"}`;
+  return `${skuBit} · ${unitBit}`;
+}
+
 export function indiaToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }

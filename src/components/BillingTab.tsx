@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition } from "react";
 import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, formatCartons, inr, skuPairsInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, inr, skuPairsInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
 import { useToast } from "./ui/Toast";
 
@@ -24,11 +24,13 @@ type CartItem = {
 export default function BillingTab({
   skus,
   warehouses,
+  warehouseStats = [],
   customers,
   onBillCreated,
 }: {
   skus: SkuWithDetails[];
   warehouses: Warehouse[];
+  warehouseStats?: { id: number; skuCount: number; pairs: number }[];
   customers: Customer[];
   onBillCreated: (bill: any) => void;
 }) {
@@ -158,7 +160,16 @@ export default function BillingTab({
         <Card>
           <Label>Warehouse</Label>
           <select className="field" value={effectiveWhId} onChange={(e) => setWarehouseId(Number(e.target.value))}>
-            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            {warehouses.map((w) => {
+              const counts = warehouseStats.find((s) => s.id === w.id);
+              return (
+                <option key={w.id} value={w.id}>
+                  {counts
+                    ? `${w.name} · ${warehouseCountLabel(counts.skuCount, counts.pairs)}`
+                    : w.name}
+                </option>
+              );
+            })}
           </select>
 
           <div className="mt-3.5">

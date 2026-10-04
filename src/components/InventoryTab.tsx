@@ -5,7 +5,7 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPairsInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, skuPairsInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
@@ -15,7 +15,7 @@ type Warehouse = { id: number; name: string };
 
 export type InventoryFocus = {
   warehouseId: number;
-  skuId: number;
+  skuId?: number;
   /** Changes on each click so the same product can be re-highlighted. */
   key: number;
 };
@@ -80,12 +80,14 @@ function StockCell({
 export default function InventoryTab({
   skus,
   warehouses,
+  warehouseStats = [],
   initialQuery = "",
   focusTarget = null,
   onFocusHandled,
 }: {
   skus: SkuWithDetails[];
   warehouses: Warehouse[];
+  warehouseStats?: { id: number; skuCount: number; pairs: number }[];
   initialQuery?: string;
   focusTarget?: InventoryFocus | null;
   onFocusHandled?: () => void;
@@ -120,17 +122,21 @@ export default function InventoryTab({
     if (whExists) setWarehouseId(focusTarget.warehouseId);
 
     setQuery("");
-    setHighlightSkuId(focusTarget.skuId);
-    const focusedSku = skus.find((s) => s.id === focusTarget.skuId);
+    setHighlightSkuId(focusTarget.skuId ?? null);
+    const focusedSku = focusTarget.skuId
+      ? skus.find((s) => s.id === focusTarget.skuId)
+      : undefined;
     if (focusedSku) {
       setOpenBrands((prev) => ({ ...prev, [focusedSku.brand]: true }));
     }
 
     const scrollTimer = window.setTimeout(() => {
-      rowRefs.current[focusTarget.skuId]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      if (focusTarget.skuId) {
+        rowRefs.current[focusTarget.skuId]?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
     }, 120);
 
     const clearTimer = window.setTimeout(() => {
@@ -203,20 +209,27 @@ export default function InventoryTab({
     });
   }
 
+  const selectedCounts = warehouseStats.find((s) => s.id === effectiveWhId);
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3.5 gap-2.5 flex-wrap">
         <div className="flex gap-2.5 items-center">
           <select
-            className="field w-[210px]"
+            className="field min-w-[240px] w-[320px] max-w-full"
             value={effectiveWhId}
             onChange={(e) => setWarehouseId(Number(e.target.value))}
           >
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
+            {warehouses.map((w) => {
+              const counts = warehouseStats.find((s) => s.id === w.id);
+              return (
+                <option key={w.id} value={w.id}>
+                  {counts
+                    ? `${w.name} · ${warehouseCountLabel(counts.skuCount, counts.pairs)}`
+                    : w.name}
+                </option>
+              );
+            })}
           </select>
           <div className="relative shrink-0" style={{ width: 360, maxWidth: "100%" }}>
             <Search
@@ -242,6 +255,9 @@ export default function InventoryTab({
         </div>
       </div>
       <div className="text-xs themed-muted -mt-1 mb-2">
+        {selectedCounts
+          ? `${warehouseCountLabel(selectedCounts.skuCount, selectedCounts.pairs)} in this godown. `
+          : null}
         Cartons = pairs ÷ pairs per carton. A value like 3.8 means the 4th carton is not full.
       </div>
 
