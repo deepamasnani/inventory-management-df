@@ -92,6 +92,17 @@ export function isShopLocation(w: { kind?: string | null }): boolean {
   return (w.kind || WAREHOUSE_KIND_GODOWN) === WAREHOUSE_KIND_SHOP;
 }
 
+export function warehousesForInventoryMode<T extends { kind?: string | null }>(
+  warehouses: T[],
+  mode: "godown" | "shop"
+): T[] {
+  if (mode === "shop") {
+    const shop = warehouses.find(isShopLocation);
+    return shop ? [shop] : [];
+  }
+  return warehouses.filter((w) => !isShopLocation(w));
+}
+
 export const LOW_STOCK_BELOW = 8;
 
 export const DEFAULT_ADMIN = {

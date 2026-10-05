@@ -8,6 +8,7 @@ import {
   indiaToday,
   skuPresentInWarehouse,
   skuSearchHaystack,
+  warehousesForInventoryMode,
 } from "./constants";
 import { parseInventoryWorkbook } from "./parse-inventory-xlsx";
 
@@ -109,3 +110,20 @@ test("Excel import treats ? as 0, keeps one size, and reads carton notes as cart
   assert.equal(rows[4].qty, 72);
   assert.equal(rows[4].size, "SPORT SHOE GENTS");
 });
+
+test("shop inventory mode targets only the shop warehouse", () => {
+  const list = [
+    { id: 1, name: "CHAUDHARY", kind: "godown" },
+    { id: 2, name: "SHOP", kind: "shop" },
+    { id: 3, name: "AZAD", kind: "godown" },
+  ];
+  assert.deepEqual(
+    warehousesForInventoryMode(list, "shop").map((w) => w.id),
+    [2]
+  );
+  assert.deepEqual(
+    warehousesForInventoryMode(list, "godown").map((w) => w.id),
+    [1, 3]
+  );
+});
+

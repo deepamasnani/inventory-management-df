@@ -5,7 +5,7 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, formatCartons, formatSizeRange, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel, warehousesForInventoryMode } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, removeSkuFromWarehouse, removeBrandFromWarehouse, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
@@ -96,7 +96,7 @@ export default function InventoryTab({
 }) {
   const shop = warehouses.find(isShopLocation);
   const godowns = warehouses.filter((w) => !isShopLocation(w));
-  const viewWarehouses = mode === "shop" ? (shop ? [shop] : []) : godowns;
+  const viewWarehouses = warehousesForInventoryMode(warehouses, mode);
   const transferLocations = warehouses;
   const [warehouseId, setWarehouseId] = useState(
     mode === "shop"
@@ -269,16 +269,12 @@ export default function InventoryTab({
           </div>
         </div>
         <div className="flex gap-2">
-          {mode !== "shop" && (
-            <>
-          <button className="btn" onClick={() => setShowImport(true)} disabled={godowns.length === 0}>
+          <button className="btn" onClick={() => setShowImport(true)} disabled={viewWarehouses.length === 0}>
             <FileSpreadsheet size={14} className="inline -mt-0.5" /> Import Excel
           </button>
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)} disabled={viewWarehouses.length === 0}>
             <Plus size={14} className="inline -mt-0.5" /> Add SKU
           </button>
-            </>
-          )}
         </div>
       </div>
       <div className="text-xs themed-muted -mt-1 mb-2">
@@ -294,7 +290,7 @@ export default function InventoryTab({
             {q
               ? `No articles match this search in this ${mode === "shop" ? "shop" : "godown"}.`
               : mode === "shop"
-                ? "Nothing in the shop yet. Transfer stock from a godown."
+                ? "Nothing in the shop yet. Import Excel, add an SKU, or transfer stock from a godown."
                 : "Nothing listed in this godown yet. Import Excel or add an SKU."}
           </div>
         </Card>
@@ -456,13 +452,13 @@ export default function InventoryTab({
 
       {showAdd && (
         <AddSkuModal
-          warehouses={godowns}
+          warehouses={viewWarehouses}
           onClose={() => setShowAdd(false)}
         />
       )}
       {showImport && (
         <ImportExcelModal
-          warehouses={godowns}
+          warehouses={viewWarehouses}
           onClose={() => setShowImport(false)}
         />
       )}
@@ -730,13 +726,15 @@ function AddSkuModal({
         <Label>Initial stock (pairs) per size category</Label>
       </div>
       <div className="flex gap-2.5 items-center mb-2">
-        <select className="field w-[220px]" value={stockWhId} onChange={(e) => setStockWhId(Number(e.target.value))} disabled={applyAll}>
+        <select className="field w-[220px]" value={stockWhId} onChange={(e) => setStockWhId(Number(e.target.value))} disabled={applyAll || warehouses.length === 1}>
           {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
+        {warehouses.length > 1 && (
         <label className="flex items-center gap-1.5 text-xs themed-muted">
           <input type="checkbox" checked={applyAll} onChange={(e) => setApplyAll(e.target.checked)} />
           Apply same qty to all {warehouses.length} warehouses
         </label>
+        )}
       </div>
       {sizes.length === 0 ? (
         <div className="text-xs themed-muted py-3">Add a size above to enter opening stock.</div>
@@ -915,7 +913,7 @@ function ImportExcelModal({
   return (
     <ModalShell title="Import Excel stock" onClose={onClose} wide>
       <p className="text-sm themed-muted mb-3">
-        Use a godown sheet with Company, Article, Size, Stocks, Colour, Remarks, and pairs per carton.
+        Use a sheet with Company, Article, Size, Stocks, Colour, Remarks, and pairs per carton.
         Size like 6*9 is stored as 6-9. Prices are not required.
       </p>
       <Label>Warehouse for this sheet</Label>
