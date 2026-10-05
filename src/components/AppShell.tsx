@@ -730,6 +730,7 @@ function AppShellInner({
               <NotificationsTab
                 lowStock={stats.lowStock}
                 creditCustomers={creditCustomers}
+                warehouses={warehouses}
                 onLowStockClick={openLowStockItem}
                 onCustomerClick={(id) => {
                   setOpenCustomerId(id);

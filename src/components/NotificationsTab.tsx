@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, CreditCard, Search } from "lucide-react";
 import { Card } from "./ui/Card";
-import { inr } from "@/lib/constants";
+import { inr, isShopLocation } from "@/lib/constants";
+import { filterLowStockByWarehouse } from "@/lib/notifications";
 
 type LowStockItem = {
   skuId: number;
@@ -16,28 +17,35 @@ type LowStockItem = {
 };
 
 type Customer = { id: number; name: string; type: string; creditBalance: number };
+type Warehouse = { id: number; name: string; kind?: string | null };
 
 export default function NotificationsTab({
   lowStock,
   creditCustomers,
+  warehouses,
   onLowStockClick,
   onCustomerClick,
 }: {
   lowStock: LowStockItem[];
   creditCustomers: Customer[];
+  warehouses: Warehouse[];
   onLowStockClick: (item: LowStockItem) => void;
   onCustomerClick: (customerId: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "stock" | "credit">("all");
+  const [warehouseId, setWarehouseId] = useState<number | null>(null);
   const q = query.trim().toLowerCase();
 
+  const godowns = warehouses.filter((w) => !isShopLocation(w));
+  const scopedStock = filterLowStockByWarehouse(lowStock, warehouseId);
+
   const stockItems = useMemo(() => {
-    if (!q) return lowStock;
-    return lowStock.filter((item) =>
+    if (!q) return scopedStock;
+    return scopedStock.filter((item) =>
       `${item.brand} ${item.sku} ${item.category} ${item.warehouse}`.toLowerCase().includes(q)
     );
-  }, [lowStock, q]);
+  }, [scopedStock, q]);
 
   const creditItems = useMemo(() => {
     if (!q) return creditCustomers;
@@ -65,10 +73,22 @@ export default function NotificationsTab({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <select
+          className="field min-w-[200px] w-[240px]"
+          value={warehouseId ?? ""}
+          onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">All godowns</option>
+          {godowns.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </select>
         {(
           [
-            ["all", `All (${lowStock.length + creditCustomers.length})`],
-            ["stock", `Low stock (${lowStock.length})`],
+            ["all", `All (${scopedStock.length + creditCustomers.length})`],
+            ["stock", `Low stock (${scopedStock.length})`],
             ["credit", `Credit (${creditCustomers.length})`],
           ] as const
         ).map(([id, label]) => (
@@ -93,7 +113,7 @@ export default function NotificationsTab({
           <div className="py-12 text-center">
             <CheckCircle2 size={32} className="mx-auto mb-2 text-[#3DC97A]" />
             <div className="text-sm font-medium themed-title">
-              {q || filter !== "all" ? "No alerts match this filter" : "No notifications"}
+              {q || filter !== "all" || warehouseId != null ? "No alerts match this filter" : "No notifications"}
             </div>
             <div className="text-xs themed-muted mt-1">
               Low stock is under 8 pairs, including 0. Credit alerts are customers with a positive balance.
