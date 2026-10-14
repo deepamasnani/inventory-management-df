@@ -4,8 +4,9 @@ import { useState, useEffect, useTransition } from "react";
 import { Search, Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, formatCartons, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
+import { CUSTOMER_TYPES, customerSearchHaystack, formatCartons, formatCustomerLabel, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
+import { availableAdvance as advanceFromBalance } from "@/lib/bill-credit";
 import { useToast } from "./ui/Toast";
 
 type Warehouse = { id: number; name: string; kind?: string | null };
@@ -49,13 +50,18 @@ export default function BillingTab({
   const [online, setOnline] = useState("");
   const [discount, setDiscount] = useState("");
   const [claim, setClaim] = useState("");
+  const [claimRemark, setClaimRemark] = useState("");
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerOpen, setCustomerOpen] = useState(false);
   const [billType, setBillType] = useState("A");
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
 
   const effectiveWhId = warehouses.some((w) => w.id === warehouseId) ? warehouseId : warehouses[0]?.id;
   const customer = customers.find((c) => c.id === customerId);
-  const availableAdvance = customer && customer.creditBalance < 0 ? -customer.creditBalance : 0;
+  const availableAdvance = customer ? advanceFromBalance(customer.creditBalance) : 0;
+  const cq = customerQuery.trim().toLowerCase();
+  const customerMatches = customers.filter((c) => !cq || customerSearchHaystack(c).includes(cq));
 
   useEffect(() => {
     if (customer) setBillType(customer.type);
@@ -122,6 +128,10 @@ export default function BillingTab({
 
   function submitBill() {
     if (!customer || cart.length === 0) return;
+    if (claimN > availableAdvance) {
+      toast("Claim cannot exceed this customer's advance.", "error");
+      return;
+    }
     const wh = warehouses.find((w) => w.id === effectiveWhId);
     const input: BillInput = {
       customerId: customer.id,
@@ -133,6 +143,7 @@ export default function BillingTab({
       subtotal,
       discount: discountN,
       claim: claimN,
+      claimRemark,
       total,
       paidCash: cashN,
       paidOnline: onlineN,
@@ -147,6 +158,7 @@ export default function BillingTab({
         setOnline("");
         setDiscount("");
         setClaim("");
+        setClaimRemark("");
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not save the bill.", "error");
       }
@@ -176,10 +188,44 @@ export default function BillingTab({
             <Label>Customer</Label>
             {!showNewCustomer ? (
               <div className="flex gap-2">
-                <select className="field" value={customerId} onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : "")}>
-                  <option value="">Select customer…</option>
-                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-                </select>
+                <div className="relative flex-1">
+                  <input
+                    className="field"
+                    placeholder="Search customer name…"
+                    value={customer ? formatCustomerLabel(customer.name, customer.type) : customerQuery}
+                    onChange={(e) => {
+                      setCustomerId("");
+                      setCustomerQuery(e.target.value);
+                      setCustomerOpen(true);
+                    }}
+                    onFocus={() => setCustomerOpen(true)}
+                  />
+                  {customerOpen && (
+                    <div
+                      className="absolute left-0 right-0 top-full mt-1 z-20 rounded-xl border max-h-52 overflow-y-auto"
+                      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+                    >
+                      {customerMatches.length === 0 ? (
+                        <div className="px-3 py-2 text-sm themed-muted">No customer names match.</div>
+                      ) : (
+                        customerMatches.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 bg-transparent border-none text-sm"
+                            onClick={() => {
+                              setCustomerId(c.id);
+                              setCustomerQuery("");
+                              setCustomerOpen(false);
+                            }}
+                          >
+                            {formatCustomerLabel(c.name, c.type)}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
                 <button className="btn" onClick={() => setShowNewCustomer(true)}>+ New</button>
               </div>
             ) : (
@@ -378,6 +424,17 @@ export default function BillingTab({
               <input className="field font-mono" type="number" value={claim} onChange={(e) => setClaim(e.target.value)} placeholder="0" />
             </div>
           </div>
+          {claimN > 0 && (
+            <div className="mb-2.5">
+              <Label>Claim remark</Label>
+              <input
+                className="field"
+                placeholder="Why this claim is applied"
+                value={claimRemark}
+                onChange={(e) => setClaimRemark(e.target.value)}
+              />
+            </div>
+          )}
 
           {customer && (
             <div className="text-[11.5px] themed-muted -mt-1 mb-2.5">
@@ -426,14 +483,15 @@ export default function BillingTab({
                     : "var(--surface-soft)",
             }}
           >
-            {balance > 0 && <span>Balance due — <b className="font-mono">{inr(balance)}</b> will be added to this customer&apos;s credit.</span>}
-            {balance < 0 && <span>Overpaid by <b className="font-mono">{inr(-balance)}</b> — will reduce existing credit.</span>}
-            {balance === 0 && <span>Fully paid — no credit change.</span>}
+            {balance > 0 && <span>Balance due — <b className="font-mono">{inr(balance)}</b> is this bill&apos;s credit.</span>}
+            {balance < 0 && <span>Overpaid by <b className="font-mono">{inr(-balance)}</b> — recorded as advance.</span>}
+            {balance === 0 && claimN > 0 && <span>Bill paid. Claim uses {inr(claimN)} of existing advance.</span>}
+            {balance === 0 && claimN === 0 && <span>Fully paid — no credit change.</span>}
           </div>
 
           <button
             className="btn btn-primary w-full mt-3.5 py-2.5"
-            disabled={!customer || cart.length === 0 || pending}
+            disabled={!customer || cart.length === 0 || pending || claimN > availableAdvance}
             onClick={submitBill}
           >
             Complete bill & generate print copy

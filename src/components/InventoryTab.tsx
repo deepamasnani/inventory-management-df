@@ -5,7 +5,7 @@ import { Search, Plus, IndianRupee, Trash2, Folder, FolderOpen, ChevronRight, Fi
 import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { CUSTOMER_TYPES, formatCartons, formatSizeRange, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel, warehousesForInventoryMode } from "@/lib/constants";
+import { CUSTOMER_TYPES, cartonCount, formatCartons, formatSizeRange, isShopLocation, pairsFromCartons, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel, warehousesForInventoryMode } from "@/lib/constants";
 import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, removeSkuFromWarehouse, removeBrandFromWarehouse, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
@@ -73,6 +73,67 @@ function StockCell({
       }
     >
       {qty}
+    </button>
+  );
+}
+
+function CartonCell({
+  pairs,
+  perCarton,
+  onSave,
+}: {
+  pairs: number;
+  perCarton: number;
+  onSave: (pairs: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const current = cartonCount(pairs, perCarton);
+  const [val, setVal] = useState(current == null ? "" : String(current));
+
+  if (!perCarton || perCarton <= 0) {
+    return <span className="text-xs themed-muted">Set pairs/ctn</span>;
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        step="0.1"
+        min={0}
+        className="field w-16 p-1 text-center font-mono"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => {
+          const next = pairsFromCartons(Number(val), perCarton);
+          if (next != null) onSave(next);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const next = pairsFromCartons(Number(val), perCarton);
+            if (next != null) onSave(next);
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setVal(current == null ? "" : String(current));
+        setEditing(true);
+      }}
+      className="border rounded-xl px-3 py-1.5 font-semibold min-w-[44px] font-mono text-sm"
+      style={{
+        background: "var(--surface-soft)",
+        color: "var(--text)",
+        borderColor: "var(--border-strong)",
+      }}
+    >
+      {formatCartons(pairs, perCarton)}
     </button>
   );
 }
@@ -397,8 +458,12 @@ export default function InventoryTab({
                                         onSave={(v) => handleAdjust(c.id, v)}
                                       />
                                     </td>
-                                    <td className="py-1 pr-3 text-center font-mono text-sm themed-title whitespace-nowrap">
-                                      {formatCartons(qty, c.pairsPerCarton)}
+                                    <td className="py-1 pr-3 text-center whitespace-nowrap">
+                                      <CartonCell
+                                        pairs={qty}
+                                        perCarton={c.pairsPerCarton}
+                                        onSave={(v) => handleAdjust(c.id, v)}
+                                      />
                                       {c.pairsPerCarton > 0 && (
                                         <div className="text-[10px] themed-muted font-sans">
                                           {c.pairsPerCarton}/ctn
@@ -573,7 +638,7 @@ function AddSkuModal({
   const [brand, setBrand] = useState("");
   const [sizes, setSizes] = useState<SizeDraft[]>(defaultSizeRows);
   const nextKey = useRef(2);
-  const [stockWhId, setStockWhId] = useState(warehouses[0]?.id);
+  const [stockWhId, setStockWhId] = useState<number | "">("");
   const [applyAll, setApplyAll] = useState(false);
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
@@ -612,6 +677,11 @@ function AddSkuModal({
       priceC: Number(s.C) || 0,
       priceD: Number(s.D) || 0,
     }));
+
+    if (!applyAll && stockWhId === "") {
+      toast("Pick a warehouse for opening stock");
+      return;
+    }
 
     const initialStock: Record<number, number[]> = {};
     warehouses.forEach((w) => {
@@ -726,7 +796,13 @@ function AddSkuModal({
         <Label>Initial stock (pairs) per size category</Label>
       </div>
       <div className="flex gap-2.5 items-center mb-2">
-        <select className="field w-[220px]" value={stockWhId} onChange={(e) => setStockWhId(Number(e.target.value))} disabled={applyAll || warehouses.length === 1}>
+        <select
+          className="field w-[220px]"
+          value={stockWhId}
+          onChange={(e) => setStockWhId(e.target.value ? Number(e.target.value) : "")}
+          disabled={applyAll}
+        >
+          <option value="">Select warehouse…</option>
           {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
         {warehouses.length > 1 && (

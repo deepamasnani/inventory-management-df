@@ -19,7 +19,7 @@ import {
   CheckCircle2,
   Store,
 } from "lucide-react";
-import { inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { billSearchHaystack, customerSearchHaystack, formatCustomerLabel, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
 import Overview from "./Overview";
 import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
@@ -45,6 +45,7 @@ type Bill = {
   subtotal: number;
   discount: number;
   claim: number;
+  claimRemark?: string | null;
   total: number;
   paidCash: number;
   paidOnline: number;
@@ -130,23 +131,28 @@ function AppShellInner({
 
   const searchHits = useMemo(() => {
     if (q.length < 1) {
-      return { skus: [] as SkuWithDetails[], bills: [] as Bill[], customers: [] as Customer[] };
+      return {
+        skus: [] as { sku: SkuWithDetails; warehouse: Warehouse }[],
+        bills: [] as Bill[],
+        customers: [] as Customer[],
+      };
+    }
+    const skuHits: { sku: SkuWithDetails; warehouse: Warehouse }[] = [];
+    for (const s of skus) {
+      if (!skuSearchHaystack(s).includes(q)) continue;
+      for (const w of warehouses) {
+        if (!skuPresentInWarehouse(s, w.id)) continue;
+        skuHits.push({ sku: s, warehouse: w });
+        if (skuHits.length >= 8) break;
+      }
+      if (skuHits.length >= 8) break;
     }
     return {
-      skus: skus
-        .filter((s) => skuSearchHaystack(s).includes(q))
-        .filter((s) => warehouses.some((w) => skuPresentInWarehouse(s, w.id)))
-        .slice(0, 5),
-      bills: bills
-        .filter((b) =>
-          `${b.invoiceNo} ${b.customerName} ${b.warehouseName}`.toLowerCase().includes(q)
-        )
-        .slice(0, 5),
-      customers: customers
-        .filter((c) => `${c.name} ${c.type}`.toLowerCase().includes(q))
-        .slice(0, 5),
+      skus: skuHits,
+      bills: bills.filter((b) => billSearchHaystack(b).includes(q)).slice(0, 5),
+      customers: customers.filter((c) => customerSearchHaystack(c).includes(q)).slice(0, 5),
     };
-  }, [q, skus, bills, customers]);
+  }, [q, skus, bills, customers, warehouses]);
 
   const searchCount =
     searchHits.skus.length + searchHits.bills.length + searchHits.customers.length;
@@ -327,7 +333,7 @@ function AppShellInner({
               <input
                 className="field field-search border-transparent rounded-full"
                 style={{ background: "var(--surface-soft)" }}
-                placeholder="Search inventory, bills, customers…"
+                placeholder="Search product, bill no, customer name…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -363,20 +369,16 @@ function AppShellInner({
                             <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide themed-muted font-semibold">
                               Inventory
                             </div>
-                            {searchHits.skus.map((s) => (
+                            {searchHits.skus.map(({ sku: s, warehouse: w }) => (
                               <button
-                                key={`sku-${s.id}`}
+                                key={`sku-${s.id}-${w.id}`}
                                 className="w-full text-left px-4 py-2.5 bg-transparent border-none hover:opacity-90"
                                 style={{ borderBottom: "1px solid var(--border)" }}
                                 onClick={() => {
                                   setInventoryQuery("");
-                                  const stockedWh =
-                                    godowns.find((w) => skuPresentInWarehouse(s, w.id)) ??
-                                    warehouses.find((w) => skuPresentInWarehouse(s, w.id)) ??
-                                    warehouses[0];
-                                  go(stockedWh && isShopLocation(stockedWh) ? "shop" : "inventory", {
+                                  go(isShopLocation(w) ? "shop" : "inventory", {
                                     skuId: s.id,
-                                    warehouseId: stockedWh?.id ?? 0,
+                                    warehouseId: w.id,
                                   });
                                   setSearch("");
                                 }}
@@ -388,11 +390,13 @@ function AppShellInner({
                                       {s.brand} {s.name}
                                     </div>
                                     <div className="text-[11px] themed-muted truncate">
+                                      {w.name}
                                       {s.categories
                                         .map((c) => [c.label, c.colour, c.remarks].filter(Boolean).join(" · "))
                                         .filter(Boolean)
-                                        .slice(0, 2)
-                                        .join(" · ") || "Article"}
+                                        .slice(0, 1)
+                                        .map((bit) => ` · ${bit}`)
+                                        .join("")}
                                     </div>
                                   </div>
                                 </div>
@@ -453,10 +457,10 @@ function AppShellInner({
                                   <Users size={14} style={{ color: "var(--accent)" }} />
                                   <div className="min-w-0">
                                     <div className="text-[13px] font-semibold themed-title truncate">
-                                      {c.name}
+                                      {formatCustomerLabel(c.name, c.type)}
                                     </div>
                                     <div className="text-[11px] themed-muted">
-                                      Type {c.type} · {inr(c.creditBalance)} credit
+                                      {inr(c.creditBalance)} credit
                                     </div>
                                   </div>
                                 </div>
@@ -584,7 +588,7 @@ function AppShellInner({
                                   </span>
                                   <div className="min-w-0">
                                     <div className="text-[13px] font-semibold themed-title truncate">
-                                      Outstanding credit · {c.name}
+                                      Outstanding credit · {formatCustomerLabel(c.name, c.type)}
                                     </div>
                                     <div className="text-[11px] themed-muted mt-0.5">
                                       {inr(c.creditBalance)} pending collection

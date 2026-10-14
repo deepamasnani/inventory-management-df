@@ -2,12 +2,11 @@
 
 import React, { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { Card } from "./ui/Card";
 import { Tag } from "./ui/Tag";
-import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { inr } from "@/lib/constants";
-import { deleteCustomer } from "@/lib/actions";
+import { customerSearchHaystack, formatCustomerLabel, inr } from "@/lib/constants";
+import { renameCustomer } from "@/lib/actions";
 import {
   initialBillCredit,
   paymentsForBill,
@@ -134,7 +133,8 @@ export default function CustomersTab({
 }) {
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
   const [query, setQuery] = useState(initialQuery);
-  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Customer | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
   const router = useRouter();
@@ -148,22 +148,19 @@ export default function CustomersTab({
   }, [initialOpenId]);
 
   const q = query.toLowerCase().trim();
-  const filtered = customers.filter((c) =>
-    `${c.name} ${c.type}`.toLowerCase().includes(q)
-  );
+  const filtered = customers.filter((c) => customerSearchHaystack(c).includes(q));
 
-  function confirmDeleteCustomer() {
-    if (!deleteTarget) return;
-    const target = deleteTarget;
-    setDeleteTarget(null);
+  function saveRename() {
+    if (!renameTarget) return;
+    const target = renameTarget;
     startTransition(async () => {
       try {
-        await deleteCustomer(target.id);
-        if (openId === target.id) setOpenId(null);
-        toast(`Customer "${target.name}" deleted`, "info");
+        await renameCustomer(target.id, renameValue);
+        toast(`Renamed to ${formatCustomerLabel(renameValue.trim() || target.name, target.type)}`);
+        setRenameTarget(null);
         router.refresh();
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not delete customer.", "error");
+        toast(err instanceof Error ? err.message : "Could not rename customer.", "error");
       }
     });
   }
@@ -174,7 +171,7 @@ export default function CustomersTab({
         <div className="mb-3.5">
           <input
             className="field max-w-sm"
-            placeholder="Filter customers…"
+            placeholder="Search customer name…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -200,7 +197,7 @@ export default function CustomersTab({
               filtered.map((c) => (
               <React.Fragment key={c.id}>
                 <tr>
-                  <td className="font-semibold themed-title">{c.name}</td>
+                  <td className="font-semibold themed-title">{formatCustomerLabel(c.name, c.type)}</td>
                   <td>
                     <Tag tone="teal">{c.type}</Tag>
                   </td>
@@ -224,12 +221,15 @@ export default function CustomersTab({
                         {openId === c.id ? "Close" : "Bills"}
                       </button>
                       <button
-                        className="btn btn-danger text-xs px-2.5 py-1"
-                        title="Delete customer"
+                        className="btn text-xs px-2.5 py-1"
+                        title="Rename customer"
                         disabled={pending}
-                        onClick={() => setDeleteTarget(c)}
+                        onClick={() => {
+                          setRenameTarget(c);
+                          setRenameValue(c.name);
+                        }}
                       >
-                        <Trash2 size={13} />
+                        <Pencil size={13} />
                       </button>
                     </div>
                   </td>
@@ -253,15 +253,31 @@ export default function CustomersTab({
         </table>
       </Card>
 
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete customer?"
-          message={`"${deleteTarget.name}" will be permanently removed, along with their payment history and any bills under their name. This cannot be undone.`}
-          confirmLabel="Delete customer"
-          danger
-          onConfirm={confirmDeleteCustomer}
-          onCancel={() => setDeleteTarget(null)}
-        />
+      {renameTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setRenameTarget(null)}>
+          <div
+            className="rounded-2xl p-4 w-[min(420px,calc(100%-2rem))]"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold themed-title mb-2">Rename customer</div>
+            <input
+              className="field w-full mb-3"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              autoFocus
+            />
+            <div className="text-xs themed-muted mb-3">
+              Shown as {formatCustomerLabel(renameValue.trim() || renameTarget.name, renameTarget.type)}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="btn" onClick={() => setRenameTarget(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={pending || !renameValue.trim()} onClick={saveRename}>
+                Save name
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

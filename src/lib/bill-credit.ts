@@ -32,7 +32,7 @@ export function paymentsForBill(bill: BillCreditFields, payments: PaymentCreditF
     (p) =>
       p.billId === bill.id ||
       p.note === `Bill ${bill.invoiceNo}` ||
-      p.note === `Applied to Bill ${bill.invoiceNo}` ||
+      (p.note || "").startsWith(`Applied to Bill ${bill.invoiceNo}`) ||
       p.note === billCreditNote(bill.invoiceNo)
   );
 }
@@ -46,6 +46,16 @@ export function settledAgainstBill(bill: BillCreditFields, payments: PaymentCred
 export function remainingBillCredit(bill: BillCreditFields, payments: PaymentCreditFields[]) {
   if (bill.status === "voided") return 0;
   return Math.max(0, initialBillCredit(bill) - settledAgainstBill(bill, payments));
+}
+
+export function availableAdvance(creditBalance: number) {
+  return creditBalance < 0 ? -creditBalance : 0;
+}
+
+/** Unpaid balance is new credit. Claim only consumes existing advance. */
+export function creditChangeFromBill(balance: number, claim: number, creditBalance: number) {
+  const appliedClaim = Math.max(0, Math.min(claim, availableAdvance(creditBalance)));
+  return balance + appliedClaim;
 }
 
 export function paymentTotalsByMethod(payments: PaymentCreditFields[]) {

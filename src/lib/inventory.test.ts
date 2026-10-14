@@ -3,9 +3,13 @@ import { test } from "node:test";
 import * as XLSX from "xlsx";
 import {
   cartonCount,
+  billSearchHaystack,
+  customerSearchHaystack,
   formatCartons,
+  formatCustomerLabel,
   formatSizeRange,
   indiaToday,
+  pairsFromCartons,
   skuPresentInWarehouse,
   skuSearchHaystack,
   warehousesForInventoryMode,
@@ -30,6 +34,7 @@ test("3.8 cartons means a partial 4th carton", () => {
   assert.equal(formatCartons(274, 72), "3.8");
   assert.equal(formatCartons(144, 72), "2");
   assert.equal(formatCartons(10, 0), "—");
+  assert.equal(pairsFromCartons(3.8, 72), 274);
 });
 
 test("a SKU with 0 pairs is still present in that godown", () => {
@@ -125,5 +130,16 @@ test("shop inventory mode targets only the shop warehouse", () => {
     warehousesForInventoryMode(list, "godown").map((w) => w.id),
     [1, 3]
   );
+});
+
+test("customer labels are Name- Type-X", () => {
+  assert.equal(formatCustomerLabel("Jatin", "B"), "Jatin- Type-B");
+  assert.equal(customerSearchHaystack({ name: "Jatin", type: "B" }).includes("jatin"), true);
+});
+
+test("bill search matches invoice number and numeric id", () => {
+  const hay = billSearchHaystack({ id: 12, invoiceNo: "INV-12", customerName: "Jatin" });
+  assert.equal(hay.includes("inv-12"), true);
+  assert.equal(hay.includes("12"), true);
 });
 

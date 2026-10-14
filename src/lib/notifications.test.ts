@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { filterLowStockByWarehouse } from "./notifications";
+import { creditChangeFromBill } from "./bill-credit";
 
 const items = [
   { warehouseId: 1, sku: "A" },
@@ -22,4 +23,11 @@ test("a godown filter keeps only that warehouse", () => {
 
 test("an unused godown returns no stock alerts", () => {
   assert.deepEqual(filterLowStockByWarehouse(items, 99), []);
+});
+
+test("unpaid balance becomes credit; claim only uses advance", () => {
+  assert.equal(creditChangeFromBill(500, 0, 0), 500);
+  assert.equal(creditChangeFromBill(0, 200, -200), 200);
+  assert.equal(creditChangeFromBill(800, 200, -200), 1000);
+  assert.equal(creditChangeFromBill(800, 200, 0), 800);
 });

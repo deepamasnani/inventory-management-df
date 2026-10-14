@@ -1,16 +1,18 @@
 "use client";
 
 import { Printer } from "lucide-react";
-import { inr } from "@/lib/constants";
+import { formatCustomerLabel, inr } from "@/lib/constants";
 
 type BillForPrint = {
   invoiceNo: string;
   date: string;
   customerName: string;
+  customerType?: string;
   warehouseName: string;
   subtotal: number;
   discount: number;
   claim: number;
+  claimRemark?: string | null;
   total: number;
   paidCash: number;
   paidOnline: number;
@@ -50,9 +52,6 @@ export default function PrintModal({
                 VOIDED
               </div>
             )}
-            <div className="text-[11px]" style={{ color: "#5B6478" }}>
-              {bill.warehouseName}
-            </div>
           </div>
 
           <div className="my-4" style={{ borderTop: "2px dashed #D6DAD3" }} />
@@ -64,7 +63,7 @@ export default function PrintModal({
             <span>{bill.date}</span>
           </div>
           <div className="text-sm mb-2.5" style={{ color: "#1C2333" }}>
-            Billed to: <b>{bill.customerName}</b>
+            Billed to: <b>{formatCustomerLabel(bill.customerName, bill.customerType || "")}</b>
           </div>
 
           <table className="w-full border-collapse">
@@ -123,10 +122,12 @@ export default function PrintModal({
             </div>
           )}
           {bill.claim > 0 && (
+            <>
             <div className="flex justify-between text-sm" style={{ color: "#5B6478" }}>
-              <span>Applied from credit</span>
+              <span>Claim{bill.claimRemark ? ` · ${bill.claimRemark}` : ""}</span>
               <span className="font-mono">−{inr(bill.claim)}</span>
             </div>
+            </>
           )}
           <div className="flex justify-between text-[15px] font-bold mt-1" style={{ color: "#1C2333" }}>
             <span>Total</span>

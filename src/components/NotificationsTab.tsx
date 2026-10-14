@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, CreditCard, Search } from "lucide-react";
 import { Card } from "./ui/Card";
-import { inr, isShopLocation } from "@/lib/constants";
+import { customerSearchHaystack, formatCustomerLabel, inr, isShopLocation } from "@/lib/constants";
 import { filterLowStockByWarehouse } from "@/lib/notifications";
 
 type LowStockItem = {
@@ -33,6 +33,7 @@ export default function NotificationsTab({
   onCustomerClick: (customerId: number) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [creditQuery, setCreditQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "stock" | "credit">("all");
   const [warehouseId, setWarehouseId] = useState<number | null>(null);
   const q = query.trim().toLowerCase();
@@ -48,14 +49,16 @@ export default function NotificationsTab({
   }, [scopedStock, q]);
 
   const creditItems = useMemo(() => {
-    if (!q) return creditCustomers;
-    return creditCustomers.filter((c) => c.name.toLowerCase().includes(q));
-  }, [creditCustomers, q]);
+    const term = (creditQuery || query).trim().toLowerCase();
+    if (!term) return creditCustomers;
+    return creditCustomers.filter((c) => customerSearchHaystack(c).includes(term));
+  }, [creditCustomers, creditQuery, query]);
 
   const showStock = filter === "all" || filter === "stock";
   const showCredit = filter === "all" || filter === "credit";
   const empty =
-    (showStock ? stockItems.length : 0) + (showCredit ? creditItems.length : 0) === 0;
+    (showStock ? stockItems.length : 0) === 0 &&
+    (!showCredit || creditCustomers.length === 0);
 
   return (
     <div className="space-y-4">
@@ -166,15 +169,24 @@ export default function NotificationsTab({
             </Card>
           )}
 
-          {showCredit && creditItems.length > 0 && (
+          {showCredit && creditCustomers.length > 0 && (
             <Card className="!p-0 overflow-hidden">
-              <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="px-4 py-3 flex flex-wrap items-center gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
                 <CreditCard size={15} className="text-[#E07A3A]" />
                 <div className="font-semibold text-sm themed-title">Outstanding credit</div>
-                <span className="text-[11px] themed-muted ml-auto">{creditItems.length}</span>
+                <span className="text-[11px] themed-muted">{creditItems.length}</span>
+                <input
+                  className="field field-search ml-auto min-w-[180px] w-[220px]"
+                  placeholder="Search creditors…"
+                  value={creditQuery}
+                  onChange={(e) => setCreditQuery(e.target.value)}
+                />
               </div>
               <div>
-                {creditItems.map((c, i) => (
+                {creditItems.length === 0 ? (
+                  <div className="px-4 py-6 text-sm themed-muted text-center">No creditors match this name.</div>
+                ) : (
+                creditItems.map((c, i) => (
                   <button
                     key={c.id}
                     type="button"
@@ -184,13 +196,13 @@ export default function NotificationsTab({
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-[13px] font-semibold themed-title truncate">{c.name}</div>
-                        <div className="text-[11px] themed-muted mt-0.5">Type {c.type}</div>
+                        <div className="text-[13px] font-semibold themed-title truncate">{formatCustomerLabel(c.name, c.type)}</div>
                       </div>
                       <span className="text-sm font-semibold themed-title shrink-0">{inr(c.creditBalance)}</span>
                     </div>
                   </button>
-                ))}
+                ))
+                )}
               </div>
             </Card>
           )}

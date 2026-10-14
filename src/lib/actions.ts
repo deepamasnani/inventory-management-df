@@ -11,12 +11,12 @@ import {
   billItems,
   payments,
 } from "@/db/schema";
-import { eq, and, sql, desc, asc, inArray, or } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, or, like } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
 import { formatSizeRange, indiaToday, isShopLocation, LOW_STOCK_BELOW, WAREHOUSE_KIND_GODOWN, WAREHOUSE_KIND_SHOP } from "./constants";
-import { billCreditNote, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
+import { availableAdvance, billCreditNote, creditChangeFromBill, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -484,33 +484,14 @@ export async function addCustomer(name: string, type: string) {
   return c;
 }
 
-export async function deleteCustomer(customerId: number) {
+export async function renameCustomer(customerId: number, name: string) {
   await requireAdmin();
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, customerId))
-    .limit(1);
-
-  if (!customer) {
-    throw new Error("Customer not found.");
-  }
-
-  const customerBills = await db
-    .select({ id: bills.id })
-    .from(bills)
-    .where(eq(bills.customerId, customerId));
-
-  if (customerBills.length > 0) {
-    const billIds = customerBills.map((b) => b.id);
-    for (const billId of billIds) {
-      await db.delete(billItems).where(eq(billItems.billId, billId));
-    }
-    await db.delete(bills).where(eq(bills.customerId, customerId));
-  }
-
-  await db.delete(payments).where(eq(payments.customerId, customerId));
-  await db.delete(customers).where(eq(customers.id, customerId));
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Enter a customer name.");
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) throw new Error("Customer not found.");
+  await db.update(customers).set({ name: trimmed }).where(eq(customers.id, customerId));
+  await db.update(bills).set({ customerName: trimmed }).where(eq(bills.customerId, customerId));
   revalidatePath("/");
 }
 
@@ -535,7 +516,7 @@ export async function settleBillCredit(billId: number, amount: number, method: s
           eq(payments.customerId, bill.customerId),
           or(
             eq(payments.note, `Bill ${bill.invoiceNo}`),
-            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`),
+            like(payments.note, `Applied to Bill ${bill.invoiceNo}%`),
             eq(payments.note, billCreditNote(bill.invoiceNo))
           )
         )
@@ -630,6 +611,7 @@ export type BillInput = {
   subtotal: number;
   discount: number;
   claim: number;
+  claimRemark?: string;
   total: number;
   paidCash: number;
   paidOnline: number;
@@ -647,6 +629,24 @@ export async function createBill(input: BillInput) {
     }
   }
   const bill = await db.transaction(async (tx) => {
+    const [customer] = await tx
+      .select()
+      .from(customers)
+      .where(eq(customers.id, input.customerId))
+      .for("update")
+      .limit(1);
+    if (!customer) throw new Error("Customer not found.");
+    const advance = availableAdvance(customer.creditBalance);
+    if (input.claim > advance) {
+      throw new Error(
+        input.claim > 0 && advance <= 0
+          ? "Claim needs an existing advance on this customer."
+          : `Claim cannot exceed advance of ₹${advance.toLocaleString("en-IN")}.`
+      );
+    }
+    const creditDelta = creditChangeFromBill(input.balance, input.claim, customer.creditBalance);
+    const claimRemark = (input.claimRemark || "").trim();
+
     const [inserted] = await tx
       .insert(bills)
       .values({
@@ -660,6 +660,7 @@ export async function createBill(input: BillInput) {
         subtotal: input.subtotal,
         discount: input.discount,
         claim: input.claim,
+        claimRemark,
         total: input.total,
         paidCash: input.paidCash,
         paidOnline: input.paidOnline,
@@ -705,7 +706,7 @@ export async function createBill(input: BillInput) {
     await tx
       .update(customers)
       .set({
-        creditBalance: sql`${customers.creditBalance} + ${input.balance} + ${input.claim}`,
+        creditBalance: sql`${customers.creditBalance} + ${creditDelta}`,
       })
       .where(eq(customers.id, input.customerId));
 
@@ -737,7 +738,9 @@ export async function createBill(input: BillInput) {
         date,
         amount: input.claim,
         method: "Claim",
-        note: `Applied to Bill ${invoiceNo}`,
+        note: claimRemark
+          ? `Applied to Bill ${invoiceNo} · ${claimRemark}`
+          : `Applied to Bill ${invoiceNo}`,
       });
     }
     if (paymentRows.length > 0) {
@@ -791,7 +794,7 @@ export async function voidBill(billId: number) {
           eq(payments.customerId, bill.customerId),
           or(
             eq(payments.note, `Bill ${bill.invoiceNo}`),
-            eq(payments.note, `Applied to Bill ${bill.invoiceNo}`),
+            like(payments.note, `Applied to Bill ${bill.invoiceNo}%`),
             eq(payments.note, billCreditNote(bill.invoiceNo))
           )
         )

@@ -29,6 +29,29 @@ export function cartonCount(pairs: number, perCarton: number): number | null {
   return Math.round((pairs / perCarton) * 10) / 10;
 }
 
+export function pairsFromCartons(cartons: number, perCarton: number): number | null {
+  if (!perCarton || perCarton <= 0 || !Number.isFinite(cartons) || cartons < 0) return null;
+  return Math.max(0, Math.round(cartons * perCarton));
+}
+
+export function formatCustomerLabel(name: string, type: string): string {
+  return `${name.trim()}- Type-${String(type || "").trim()}`;
+}
+
+export function customerSearchHaystack(c: { name: string; type: string }): string {
+  return `${c.name} ${formatCustomerLabel(c.name, c.type)} type-${c.type} ${c.type}`.toLowerCase();
+}
+
+export function billSearchHaystack(b: {
+  id: number;
+  invoiceNo: string;
+  customerName: string;
+  date?: string;
+}): string {
+  const no = (b.invoiceNo || "").toLowerCase();
+  return `${no} ${b.id} inv-${b.id} ${b.customerName} ${b.date || ""}`.toLowerCase();
+}
+
 export function formatCartons(pairs: number, perCarton: number): string {
   const n = cartonCount(pairs, perCarton);
   if (n === null) return "—";

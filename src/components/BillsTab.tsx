@@ -7,7 +7,7 @@ import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Tag } from "./ui/Tag";
-import { CUSTOMER_TYPES, inr } from "@/lib/constants";
+import { billSearchHaystack, CUSTOMER_TYPES, formatCustomerLabel, inr } from "@/lib/constants";
 import { dispatchBill, getBillItems, voidBill } from "@/lib/actions";
 import {
   initialBillCredit,
@@ -28,6 +28,7 @@ type Bill = {
   subtotal: number;
   discount: number;
   claim: number;
+  claimRemark?: string | null;
   total: number;
   paidCash: number;
   paidOnline: number;
@@ -78,9 +79,7 @@ export default function BillsTab({
 
   const openBill = bills.find((b) => b.id === openId);
   const q = query.toLowerCase().trim();
-  const filtered = bills.filter((b) =>
-    `${b.invoiceNo} ${b.customerName} ${b.warehouseName} ${b.date}`.toLowerCase().includes(q)
-  );
+  const filtered = bills.filter((b) => billSearchHaystack(b).includes(q));
 
   function handleOpen(billId: number) {
     startTransition(async () => {
@@ -136,7 +135,7 @@ export default function BillsTab({
         <div className="mb-3.5">
           <input
             className="field max-w-sm"
-            placeholder="Filter by bill, customer, warehouse…"
+            placeholder="Search bill no, invoice, customer…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -151,7 +150,7 @@ export default function BillsTab({
           <table className="soft-table">
             <thead>
               <tr>
-                {["Bill", "Date", "Customer", "Warehouse", "Total", "Credit left", ""].map((h) => (
+                {["Bill", "Date", "Customer", "Total", "Credit left", ""].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -175,8 +174,7 @@ export default function BillsTab({
                     )}
                   </td>
                   <td className="themed-muted">{b.date}</td>
-                  <td className="themed-muted">{b.customerName}</td>
-                  <td className="themed-muted">{b.warehouseName}</td>
+                  <td className="themed-muted">{formatCustomerLabel(b.customerName, b.customerType)}</td>
                   <td className="font-semibold themed-title">{inr(b.total)}</td>
                   <td className={`font-semibold ${remaining > 0 ? "text-[#E07A3A]" : "themed-muted"}`}>
                     {remaining > 0
@@ -200,7 +198,7 @@ export default function BillsTab({
                 </tr>
                 {open && (
                   <tr>
-                    <td colSpan={7} style={{ background: "var(--surface-soft)" }}>
+                    <td colSpan={6} style={{ background: "var(--surface-soft)" }}>
                       <div className="p-3">
                         <BillCreditPayForm bill={b} remaining={remaining} />
                         <BillPaymentBreakdown payments={paymentsForBill(b, payments)} />
@@ -220,8 +218,7 @@ export default function BillsTab({
         <ModalShell title={`Bill ${openBill.invoiceNo}`} onClose={() => setOpenId(null)} wide>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3.5">
             <DetailRow label="Date" value={openBill.date} />
-            <DetailRow label="Warehouse" value={openBill.warehouseName} />
-            <DetailRow label="Customer" value={openBill.customerName} />
+            <DetailRow label="Customer" value={formatCustomerLabel(openBill.customerName, openBill.customerType)} />
             <DetailRow label="Billing type" value={CUSTOMER_TYPES.find((t) => t.id === openBill.customerType)?.label || openBill.customerType} />
             <DetailRow
               label="Dispatch"
@@ -262,7 +259,8 @@ export default function BillsTab({
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <DetailRow label="Subtotal" value={inr(openBill.subtotal)} mono />
             <DetailRow label="Discount" value={inr(openBill.discount)} mono />
-            <DetailRow label="Claim (from credit)" value={inr(openBill.claim)} mono />
+            <DetailRow label="Claim (from advance)" value={inr(openBill.claim)} mono />
+            {openBill.claimRemark ? <DetailRow label="Claim remark" value={openBill.claimRemark} /> : null}
             <DetailRow label="Total payable" value={inr(openBill.total)} mono strong />
             <DetailRow label="Paid — cash" value={inr(openBill.paidCash)} mono />
             <DetailRow label="Paid — online" value={inr(openBill.paidOnline)} mono />
