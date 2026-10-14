@@ -447,6 +447,16 @@ export async function updateSkuPrices(
   revalidatePath("/");
 }
 
+export async function updatePairsPerCarton(skuCategoryId: number, pairsPerCarton: number) {
+  await requireAdmin();
+  const ppc = Math.max(0, Number(pairsPerCarton) || 0);
+  await db
+    .update(skuCategories)
+    .set({ pairsPerCarton: ppc })
+    .where(eq(skuCategories.id, skuCategoryId));
+  revalidatePath("/");
+}
+
 export async function adjustStock(
   skuCategoryId: number,
   warehouseId: number,

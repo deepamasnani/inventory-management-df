@@ -6,7 +6,7 @@ import { Card, Label } from "./ui/Card";
 import { ModalShell } from "./ui/ModalShell";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { CUSTOMER_TYPES, cartonCount, formatCartons, formatSizeRange, isShopLocation, pairsFromCartons, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel, warehousesForInventoryMode } from "@/lib/constants";
-import { adjustStock, addSku, importInventoryRows, updateSkuPrices, deleteBrandFolder, deleteSku, removeSkuFromWarehouse, removeBrandFromWarehouse, updateSkuDetails, transferStock } from "@/lib/actions";
+import { adjustStock, addSku, importInventoryRows, updateSkuPrices, updatePairsPerCarton, deleteBrandFolder, deleteSku, removeSkuFromWarehouse, removeBrandFromWarehouse, updateSkuDetails, transferStock } from "@/lib/actions";
 import type { SkuWithDetails } from "@/lib/actions";
 import { parseInventoryWorkbook } from "@/lib/parse-inventory-xlsx";
 import { useToast } from "./ui/Toast";
@@ -138,6 +138,58 @@ function CartonCell({
   );
 }
 
+function PpcCell({
+  value,
+  onSave,
+}: {
+  value: number;
+  onSave: (v: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ? String(value) : "");
+
+  function commit() {
+    const n = Number(val);
+    onSave(Number.isFinite(n) && n > 0 ? n : 0);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        step="0.1"
+        min={0}
+        className="field w-16 p-1 text-center font-mono"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+        }}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setVal(value ? String(value) : "");
+        setEditing(true);
+      }}
+      className="border rounded-xl px-3 py-1.5 font-semibold min-w-[44px] font-mono text-sm"
+      style={{
+        background: "var(--surface-soft)",
+        color: "var(--text)",
+        borderColor: "var(--border-strong)",
+      }}
+    >
+      {value > 0 ? value : "—"}
+    </button>
+  );
+}
+
 export default function InventoryTab({
   skus,
   warehouses,
@@ -256,6 +308,13 @@ export default function InventoryTab({
     startTransition(async () => {
       await adjustStock(catId, effectiveWhId, newQty);
       toast("Stock updated");
+    });
+  }
+
+  function handlePpc(catId: number, ppc: number) {
+    startTransition(async () => {
+      await updatePairsPerCarton(catId, ppc);
+      toast("Items per carton updated");
     });
   }
 
@@ -435,7 +494,10 @@ export default function InventoryTab({
                                 <th className="font-semibold pb-1 pr-3">Colour</th>
                                 <th className="font-semibold pb-1 pr-3">Remarks</th>
                                 <th className="font-semibold pb-1 pr-3 text-center">Pairs</th>
-                                <th className="font-semibold pb-1 pr-3 text-center" title="3.8 means the 4th carton is not full">
+                                <th className="font-semibold pb-1 pr-3 text-center" title="How many pairs fit in one carton">
+                                  /carton
+                                </th>
+                                <th className="font-semibold pb-1 pr-3 text-center" title="Pairs ÷ items per carton">
                                   Cartons
                                 </th>
                               </tr>
@@ -458,17 +520,18 @@ export default function InventoryTab({
                                         onSave={(v) => handleAdjust(c.id, v)}
                                       />
                                     </td>
+                                    <td className="py-1 pr-3 text-center">
+                                      <PpcCell
+                                        value={c.pairsPerCarton}
+                                        onSave={(v) => handlePpc(c.id, v)}
+                                      />
+                                    </td>
                                     <td className="py-1 pr-3 text-center whitespace-nowrap">
                                       <CartonCell
                                         pairs={qty}
                                         perCarton={c.pairsPerCarton}
                                         onSave={(v) => handleAdjust(c.id, v)}
                                       />
-                                      {c.pairsPerCarton > 0 && (
-                                        <div className="text-[10px] themed-muted font-sans">
-                                          {c.pairsPerCarton}/ctn
-                                        </div>
-                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -718,7 +781,7 @@ function AddSkuModal({
             <th className="text-left text-[11px] uppercase themed-muted p-2">Range</th>
             <th className="text-left text-[11px] uppercase themed-muted p-2">Colour</th>
             <th className="text-left text-[11px] uppercase themed-muted p-2">Remarks</th>
-            <th className="text-center text-[11px] uppercase themed-muted p-2">Pairs/ctn</th>
+            <th className="text-center text-[11px] uppercase themed-muted p-2">Items/carton</th>
             {CUSTOMER_TYPES.map((t) => (
               <th key={t.id} className="text-center text-[11px] uppercase themed-muted p-2">{t.id}</th>
             ))}
@@ -793,7 +856,7 @@ function AddSkuModal({
       </button>
 
       <div className="mt-4">
-        <Label>Initial stock (pairs) per size category</Label>
+        <Label>Opening stock — enter pairs; cartons are calculated from items/carton</Label>
       </div>
       <div className="flex gap-2.5 items-center mb-2">
         <select
@@ -815,21 +878,47 @@ function AddSkuModal({
       {sizes.length === 0 ? (
         <div className="text-xs themed-muted py-3">Add a size above to enter opening stock.</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {sizes.map((s) => (
-            <div key={s.key}>
-              <div className="text-xs themed-muted mb-1 truncate">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {sizes.map((s) => {
+            const qty = Number(s.qty) || 0;
+            const ppc = Number(s.ppc) || 0;
+            return (
+            <div key={s.key} className="rounded-xl p-2.5" style={{ background: "var(--surface-soft)", border: "1px solid var(--border)" }}>
+              <div className="text-xs themed-muted mb-1.5 truncate">
                 {[s.label.trim() || "Untitled", s.colour.trim()].filter(Boolean).join(" · ")}
               </div>
-              <input
-                className="field font-mono text-center"
-                type="number"
-                placeholder="0"
-                value={s.qty}
-                onChange={(e) => updateSize(s.key, { qty: e.target.value })}
-              />
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <div className="text-[10px] uppercase themed-muted mb-1">Pairs</div>
+                  <input
+                    className="field font-mono text-center"
+                    type="number"
+                    placeholder="0"
+                    value={s.qty}
+                    onChange={(e) => updateSize(s.key, { qty: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[10px] uppercase themed-muted mb-1">Items/carton</div>
+                  <input
+                    className="field font-mono text-center"
+                    type="number"
+                    step="0.1"
+                    placeholder="72"
+                    value={s.ppc}
+                    onChange={(e) => updateSize(s.key, { ppc: e.target.value })}
+                  />
+                </div>
+                <div className="w-[88px]">
+                  <div className="text-[10px] uppercase themed-muted mb-1">Cartons</div>
+                  <div className="field font-mono text-center flex items-center justify-center" style={{ background: "var(--surface)" }}>
+                    {formatCartons(qty, ppc)}
+                  </div>
+                </div>
+              </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -889,7 +978,7 @@ function EditPricesModal({
         <thead>
           <tr>
             <th className="text-left text-[11px] uppercase themed-muted p-2">Range</th>
-            <th className="text-center text-[11px] uppercase themed-muted p-2">Pairs/ctn</th>
+            <th className="text-center text-[11px] uppercase themed-muted p-2">Items/carton</th>
             {CUSTOMER_TYPES.map((t) => (
               <th key={t.id} className="text-center text-[11px] uppercase themed-muted p-2">{t.label}</th>
             ))}
