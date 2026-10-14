@@ -20,6 +20,7 @@ import {
   Store,
 } from "lucide-react";
 import { billSearchHaystack, customerSearchHaystack, formatCustomerLabel, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack } from "@/lib/constants";
+import { displayedCustomerCredit, remainingCreditForCustomer } from "@/lib/bill-credit";
 import Overview from "./Overview";
 import InventoryTab, { type InventoryFocus } from "./InventoryTab";
 import BillingTab from "./BillingTab";
@@ -125,7 +126,10 @@ function AppShellInner({
 
   const shop = warehouses.find(isShopLocation);
   const godowns = warehouses.filter((w) => !isShopLocation(w));
-  const creditCustomers = customers.filter((c) => c.creditBalance > 0);
+  const creditCustomers = customers.filter((c) => {
+    const remaining = remainingCreditForCustomer(c.id, bills, payments);
+    return displayedCustomerCredit(c.creditBalance, remaining) > 0;
+  });
   const notificationCount = stats.lowStock.length + creditCustomers.length;
   const q = search.trim().toLowerCase();
 

@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
 import { formatSizeRange, indiaToday, isShopLocation, LOW_STOCK_BELOW, WAREHOUSE_KIND_GODOWN, WAREHOUSE_KIND_SHOP } from "./constants";
-import { availableClaim, billCreditNote, creditChangeFromBill, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
+import { availableClaim, billCreditNote, creditChangeFromBill, displayedCustomerCredit, isBillCreditSettlement, remainingBillCredit, remainingCreditForCustomer, settledAgainstBill } from "./bill-credit";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -469,8 +469,22 @@ export async function adjustStock(
 
 // ── Customers ───────────────────────────────────────────
 
+async function syncCustomerCreditToOpenBills() {
+  const allCustomers = await db.select().from(customers);
+  const allBills = await db.select().from(bills);
+  const allPayments = await db.select().from(payments);
+  for (const c of allCustomers) {
+    const remaining = remainingCreditForCustomer(c.id, allBills, allPayments);
+    const next = displayedCustomerCredit(c.creditBalance, remaining);
+    if (next !== c.creditBalance) {
+      await db.update(customers).set({ creditBalance: next }).where(eq(customers.id, c.id));
+    }
+  }
+}
+
 export async function getCustomers() {
   await requireAdmin();
+  await syncCustomerCreditToOpenBills();
   return db.select().from(customers).orderBy(asc(customers.id));
 }
 
@@ -862,10 +876,11 @@ export async function getDashboardStats() {
 
   const liveBills = allBills.filter((b) => b.status !== "voided");
 
-  const outstandingCredit = allCustomers.reduce(
-    (sum, c) => sum + Math.max(0, c.creditBalance),
-    0
-  );
+  const allPayments = await db.select().from(payments);
+  const outstandingCredit = allCustomers.reduce((sum, c) => {
+    const remaining = remainingCreditForCustomer(c.id, liveBills, allPayments);
+    return sum + Math.max(0, displayedCustomerCredit(c.creditBalance, remaining));
+  }, 0);
 
   const revenueCollected = liveBills.reduce(
     (sum, b) => sum + b.paidCash + b.paidOnline,

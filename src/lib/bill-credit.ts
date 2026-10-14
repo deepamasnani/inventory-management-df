@@ -48,6 +48,23 @@ export function remainingBillCredit(bill: BillCreditFields, payments: PaymentCre
   return Math.max(0, initialBillCredit(bill) - settledAgainstBill(bill, payments));
 }
 
+export function remainingCreditForCustomer(
+  customerId: number,
+  bills: (BillCreditFields & { customerId: number })[],
+  payments: PaymentCreditFields[]
+) {
+  return bills
+    .filter((b) => b.customerId === customerId)
+    .reduce((sum, b) => sum + remainingBillCredit(b, payments), 0);
+}
+
+/** Positive debt follows open bills. Negative balance is leftover advance. */
+export function displayedCustomerCredit(creditBalance: number, remainingOnBills: number) {
+  if (remainingOnBills > 0) return remainingOnBills;
+  if (creditBalance < 0) return creditBalance;
+  return 0;
+}
+
 export function availableAdvance(creditBalance: number) {
   return creditBalance < 0 ? -creditBalance : 0;
 }

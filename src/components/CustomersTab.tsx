@@ -8,9 +8,11 @@ import { Tag } from "./ui/Tag";
 import { customerSearchHaystack, formatCustomerLabel, inr } from "@/lib/constants";
 import { renameCustomer } from "@/lib/actions";
 import {
+  displayedCustomerCredit,
   initialBillCredit,
   paymentsForBill,
   remainingBillCredit,
+  remainingCreditForCustomer,
   type PaymentCreditFields,
 } from "@/lib/bill-credit";
 import { BillCreditPayForm, BillPaymentBreakdown } from "./BillPaymentDetails";
@@ -38,7 +40,7 @@ function CustomerBills({
   onOpenBill: (billId: number) => void;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const outstanding = Math.max(0, customer.creditBalance);
+  const outstanding = remainingCreditForCustomer(customer.id, bills, payments);
 
   if (bills.length === 0) {
     return <div className="p-3 text-sm themed-muted">No bills for this customer yet.</div>;
@@ -194,7 +196,10 @@ export default function CustomersTab({
                 </td>
               </tr>
             ) : (
-              filtered.map((c) => (
+              filtered.map((c) => {
+              const remaining = remainingCreditForCustomer(c.id, bills, payments);
+              const credit = displayedCustomerCredit(c.creditBalance, remaining);
+              return (
               <React.Fragment key={c.id}>
                 <tr>
                   <td className="font-semibold themed-title">{formatCustomerLabel(c.name, c.type)}</td>
@@ -203,14 +208,14 @@ export default function CustomersTab({
                   </td>
                   <td
                     className={`font-semibold ${
-                      c.creditBalance > 0
+                      credit > 0
                         ? "text-[#E07A3A]"
-                        : c.creditBalance < 0
+                        : credit < 0
                           ? "text-[#3DC97A]"
                           : "themed-muted"
                     }`}
                   >
-                    {inr(c.creditBalance)}
+                    {inr(credit)}
                   </td>
                   <td>
                     <div className="flex items-center justify-end gap-2">
@@ -247,7 +252,8 @@ export default function CustomersTab({
                   </tr>
                 )}
               </React.Fragment>
-            ))
+            );
+            })
             )}
           </tbody>
         </table>
