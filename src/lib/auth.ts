@@ -68,6 +68,7 @@ export async function ensureAdminTable() {
   await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`);
   await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending'`);
   await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS claim_remark TEXT NOT NULL DEFAULT ''`);
+  await db.execute(sql`ALTER TABLE bills ADD COLUMN IF NOT EXISTS credit_delta INTEGER`);
   await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS bill_id INTEGER`);
   await db.execute(sql`
     UPDATE payments p

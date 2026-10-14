@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "./auth";
 import type { InventoryImportRow } from "./parse-inventory-xlsx";
 import { formatSizeRange, indiaToday, isShopLocation, LOW_STOCK_BELOW, WAREHOUSE_KIND_GODOWN, WAREHOUSE_KIND_SHOP } from "./constants";
-import { availableAdvance, billCreditNote, creditChangeFromBill, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
+import { availableClaim, billCreditNote, creditChangeFromBill, isBillCreditSettlement, remainingBillCredit, settledAgainstBill } from "./bill-credit";
 
 // ── Warehouses ──────────────────────────────────────────
 
@@ -636,12 +636,12 @@ export async function createBill(input: BillInput) {
       .for("update")
       .limit(1);
     if (!customer) throw new Error("Customer not found.");
-    const advance = availableAdvance(customer.creditBalance);
-    if (input.claim > advance) {
+    const claimable = availableClaim(customer.creditBalance);
+    if (input.claim > claimable) {
       throw new Error(
-        input.claim > 0 && advance <= 0
-          ? "Claim needs an existing advance on this customer."
-          : `Claim cannot exceed advance of ₹${advance.toLocaleString("en-IN")}.`
+        input.claim > 0 && claimable <= 0
+          ? "Claim needs existing credit or advance on this customer."
+          : `Claim cannot exceed ₹${claimable.toLocaleString("en-IN")} on this customer's ledger.`
       );
     }
     const creditDelta = creditChangeFromBill(input.balance, input.claim, customer.creditBalance);
@@ -661,6 +661,7 @@ export async function createBill(input: BillInput) {
         discount: input.discount,
         claim: input.claim,
         claimRemark,
+        creditDelta,
         total: input.total,
         paidCash: input.paidCash,
         paidOnline: input.paidOnline,
@@ -805,7 +806,7 @@ export async function voidBill(billId: number) {
     await tx
       .update(customers)
       .set({
-        creditBalance: sql`${customers.creditBalance} - ${bill.balance} - ${bill.claim} + ${settled}`,
+        creditBalance: sql`${customers.creditBalance} - ${bill.creditDelta ?? bill.balance + bill.claim} + ${settled}`,
       })
       .where(eq(customers.id, bill.customerId));
 

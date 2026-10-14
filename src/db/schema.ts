@@ -55,6 +55,7 @@ export const bills = pgTable("bills", {
   discount: integer("discount").notNull().default(0),
   claim: integer("claim").notNull().default(0),
   claimRemark: text("claim_remark").notNull().default(""),
+  creditDelta: integer("credit_delta"),
   total: integer("total").notNull().default(0),
   paidCash: integer("paid_cash").notNull().default(0),
   paidOnline: integer("paid_online").notNull().default(0),

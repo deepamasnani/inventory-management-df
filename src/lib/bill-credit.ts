@@ -52,10 +52,21 @@ export function availableAdvance(creditBalance: number) {
   return creditBalance < 0 ? -creditBalance : 0;
 }
 
-/** Unpaid balance is new credit. Claim only consumes existing advance. */
+/** How much claim can come off this customer: outstanding credit or advance. */
+export function availableClaim(creditBalance: number) {
+  return Math.abs(creditBalance);
+}
+
+/**
+ * Unpaid balance is new credit.
+ * Claim against outstanding credit reduces what they owe.
+ * Claim against advance consumes the overpayment.
+ */
 export function creditChangeFromBill(balance: number, claim: number, creditBalance: number) {
-  const appliedClaim = Math.max(0, Math.min(claim, availableAdvance(creditBalance)));
-  return balance + appliedClaim;
+  const applied = Math.max(0, Math.min(claim, availableClaim(creditBalance)));
+  if (creditBalance > 0) return balance - applied;
+  if (creditBalance < 0) return balance + applied;
+  return balance;
 }
 
 export function paymentTotalsByMethod(payments: PaymentCreditFields[]) {

@@ -6,7 +6,7 @@ import { Card, StitchDivider, Label } from "./ui/Card";
 import { Tag } from "./ui/Tag";
 import { CUSTOMER_TYPES, customerSearchHaystack, formatCartons, formatCustomerLabel, inr, isShopLocation, skuPresentInWarehouse, skuSearchHaystack, warehouseCountLabel } from "@/lib/constants";
 import { addCustomer, createBill, type BillInput, type SkuWithDetails } from "@/lib/actions";
-import { availableAdvance as advanceFromBalance } from "@/lib/bill-credit";
+import { availableClaim } from "@/lib/bill-credit";
 import { useToast } from "./ui/Toast";
 
 type Warehouse = { id: number; name: string; kind?: string | null };
@@ -59,7 +59,7 @@ export default function BillingTab({
 
   const effectiveWhId = warehouses.some((w) => w.id === warehouseId) ? warehouseId : warehouses[0]?.id;
   const customer = customers.find((c) => c.id === customerId);
-  const availableAdvance = customer ? advanceFromBalance(customer.creditBalance) : 0;
+  const claimable = customer ? availableClaim(customer.creditBalance) : 0;
   const cq = customerQuery.trim().toLowerCase();
   const customerMatches = customers.filter((c) => !cq || customerSearchHaystack(c).includes(cq));
 
@@ -128,8 +128,8 @@ export default function BillingTab({
 
   function submitBill() {
     if (!customer || cart.length === 0) return;
-    if (claimN > availableAdvance) {
-      toast("Claim cannot exceed this customer's advance.", "error");
+    if (claimN > claimable) {
+      toast("Claim cannot exceed this customer's credit or advance.", "error");
       return;
     }
     const wh = warehouses.find((w) => w.id === effectiveWhId);
@@ -438,12 +438,14 @@ export default function BillingTab({
 
           {customer && (
             <div className="text-[11.5px] themed-muted -mt-1 mb-2.5">
-              {availableAdvance > 0 ? (
-                <>Claim deducts from {customer.name}&apos;s existing advance of <b className="font-mono">{inr(availableAdvance)}</b>.</>
+              {customer.creditBalance > 0 ? (
+                <>Claim comes off {customer.name}&apos;s outstanding credit of <b className="font-mono">{inr(customer.creditBalance)}</b>.</>
+              ) : customer.creditBalance < 0 ? (
+                <>Claim uses {customer.name}&apos;s advance of <b className="font-mono">{inr(-customer.creditBalance)}</b>.</>
               ) : (
-                "Claim deducts an amount the customer previously overpaid from this bill."
+                "Claim needs existing credit or advance on this customer."
               )}
-              {claimN > availableAdvance && <span className="text-red-500"> Entered claim exceeds available advance.</span>}
+              {claimN > claimable && <span className="text-red-500"> Entered claim exceeds the ledger amount ({inr(claimable)}).</span>}
             </div>
           )}
 
@@ -485,13 +487,13 @@ export default function BillingTab({
           >
             {balance > 0 && <span>Balance due — <b className="font-mono">{inr(balance)}</b> is this bill&apos;s credit.</span>}
             {balance < 0 && <span>Overpaid by <b className="font-mono">{inr(-balance)}</b> — recorded as advance.</span>}
-            {balance === 0 && claimN > 0 && <span>Bill paid. Claim uses {inr(claimN)} of existing advance.</span>}
+            {balance === 0 && claimN > 0 && <span>Bill paid. Claim uses {inr(claimN)} from this customer&apos;s ledger.</span>}
             {balance === 0 && claimN === 0 && <span>Fully paid — no credit change.</span>}
           </div>
 
           <button
             className="btn btn-primary w-full mt-3.5 py-2.5"
-            disabled={!customer || cart.length === 0 || pending || claimN > availableAdvance}
+            disabled={!customer || cart.length === 0 || pending || claimN > claimable}
             onClick={submitBill}
           >
             Complete bill & generate print copy

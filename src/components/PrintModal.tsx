@@ -1,7 +1,7 @@
 "use client";
 
 import { Printer } from "lucide-react";
-import { formatCustomerLabel, inr } from "@/lib/constants";
+import { inr } from "@/lib/constants";
 
 type BillForPrint = {
   invoiceNo: string;
@@ -63,7 +63,7 @@ export default function PrintModal({
             <span>{bill.date}</span>
           </div>
           <div className="text-sm mb-2.5" style={{ color: "#1C2333" }}>
-            Billed to: <b>{formatCustomerLabel(bill.customerName, bill.customerType || "")}</b>
+            Billed to: <b>{bill.customerName}</b>
           </div>
 
           <table className="w-full border-collapse">

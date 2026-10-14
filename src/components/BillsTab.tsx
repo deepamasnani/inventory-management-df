@@ -29,6 +29,7 @@ type Bill = {
   discount: number;
   claim: number;
   claimRemark?: string | null;
+  creditDelta?: number | null;
   total: number;
   paidCash: number;
   paidOnline: number;
@@ -270,7 +271,11 @@ export default function BillsTab({
               value={inr(remainingBillCredit(openBill, payments))}
               mono
             />
-            <DetailRow label="Net credit change" value={inr(openBill.balance + openBill.claim)} mono />
+            <DetailRow
+              label="Net credit change"
+              value={inr(openBill.creditDelta ?? openBill.balance)}
+              mono
+            />
           </div>
 
           <div className="flex justify-end gap-2 mt-4">

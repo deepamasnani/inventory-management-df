@@ -25,9 +25,11 @@ test("an unused godown returns no stock alerts", () => {
   assert.deepEqual(filterLowStockByWarehouse(items, 99), []);
 });
 
-test("unpaid balance becomes credit; claim only uses advance", () => {
+test("unpaid balance becomes credit; claim uses outstanding credit or advance", () => {
   assert.equal(creditChangeFromBill(500, 0, 0), 500);
   assert.equal(creditChangeFromBill(0, 200, -200), 200);
   assert.equal(creditChangeFromBill(800, 200, -200), 1000);
   assert.equal(creditChangeFromBill(800, 200, 0), 800);
+  assert.equal(creditChangeFromBill(2000, 1000, 5000), 1000);
+  assert.equal(creditChangeFromBill(0, 1000, 5000), -1000);
 });
